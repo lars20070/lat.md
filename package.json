@@ -3,7 +3,11 @@
   "version": "0.1.0",
   "description": "Anchor source code to high-level concepts defined in markdown",
   "type": "module",
+  "bin": {
+    "lat": "./dist/src/cli.js"
+  },
   "scripts": {
+    "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
