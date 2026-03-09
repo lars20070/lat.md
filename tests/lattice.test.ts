@@ -10,6 +10,7 @@ import {
   extractRefs,
 } from '../src/lattice.js';
 import { formatSectionPreview } from '../src/format.js';
+import { checkLinks } from '../src/cli/check.js';
 
 const fixtureDir = join(import.meta.dirname, '.lat');
 
@@ -40,6 +41,7 @@ describe('listLatticeFiles', () => {
 });
 
 describe('parseSections', () => {
+  // @lat: [[Tests#Section Parsing#Builds a section tree from nested headings]]
   it('builds a section tree from nested headings', () => {
     const filePath = join(fixtureDir, 'dev-process.md');
     const content = readFileSync(filePath, 'utf-8');
@@ -63,6 +65,7 @@ describe('parseSections', () => {
     expect(formatting.children).toHaveLength(0);
   });
 
+  // @lat: [[Tests#Section Parsing#Populates position and body fields]]
   it('populates startLine, endLine, and body', () => {
     const filePath = join(fixtureDir, 'dev-process.md');
     const content = readFileSync(filePath, 'utf-8');
@@ -101,6 +104,7 @@ describe('parseSections', () => {
 });
 
 describe('extractRefs', () => {
+  // @lat: [[Tests#Ref Extraction#Extracts wiki link references]]
   it('extracts wiki link references from a file', () => {
     const filePath = join(fixtureDir, 'notes.md');
     const content = readFileSync(filePath, 'utf-8');
@@ -113,6 +117,7 @@ describe('extractRefs', () => {
     expect(refs[0].line).toBe(9);
   });
 
+  // @lat: [[Tests#Ref Extraction#Returns empty for files without links]]
   it('returns empty array for file with no wiki links', () => {
     const filePath = join(fixtureDir, 'dev-process.md');
     const content = readFileSync(filePath, 'utf-8');
@@ -123,6 +128,7 @@ describe('extractRefs', () => {
 });
 
 describe('formatSectionPreview', () => {
+  // @lat: [[Tests#Section Preview Formatting#Formats section with body]]
   it('formats a section with body text', () => {
     const filePath = join(fixtureDir, 'dev-process.md');
     const content = readFileSync(filePath, 'utf-8');
@@ -138,6 +144,7 @@ describe('formatSectionPreview', () => {
     expect(lines[3]).toBe('    Run tests with vitest.');
   });
 
+  // @lat: [[Tests#Section Preview Formatting#Formats section without body]]
   it('formats a section without body text', () => {
     const filePath = join(fixtureDir, 'dev-process.md');
     const content = readFileSync(filePath, 'utf-8');
@@ -153,7 +160,44 @@ describe('formatSectionPreview', () => {
   });
 });
 
+describe('check', () => {
+  // @lat: [[Tests#Link Checking#Detects broken links]]
+  it('detects broken wiki links', async () => {
+    const { mkdtempSync, writeFileSync, mkdirSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const dir = mkdtempSync(join(tmpdir(), 'lat-check-'));
+    const latDir = join(dir, '.lat');
+    mkdirSync(latDir);
+    writeFileSync(
+      join(latDir, 'a.md'),
+      '# Alpha\n\nSee [[Nonexistent#Thing]] for details.\n',
+    );
+
+    const errors = await checkLinks(latDir);
+    expect(errors).toHaveLength(1);
+    expect(errors[0].target).toBe('Nonexistent#Thing');
+    expect(errors[0].line).toBe(3);
+  });
+
+  // @lat: [[Tests#Link Checking#Passes with valid links]]
+  it('passes when all links are valid', async () => {
+    const { mkdtempSync, writeFileSync, mkdirSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const dir = mkdtempSync(join(tmpdir(), 'lat-check-'));
+    const latDir = join(dir, '.lat');
+    mkdirSync(latDir);
+    writeFileSync(
+      join(latDir, 'a.md'),
+      '# Alpha\n\n## Beta\n\nSee [[Alpha#Beta]] here.\n',
+    );
+
+    const errors = await checkLinks(latDir);
+    expect(errors).toHaveLength(0);
+  });
+});
+
 describe('end-to-end locate', () => {
+  // @lat: [[Tests#Locate#Finds sections by exact id]]
   it('finds sections by exact id match (case-insensitive)', async () => {
     const sections = await loadAllSections(fixtureDir);
     const matches = findSections(
@@ -175,6 +219,7 @@ describe('end-to-end locate', () => {
 });
 
 describe('end-to-end refs', () => {
+  // @lat: [[Tests#Refs End-to-End#Finds referring sections via wiki links]]
   it('finds sections that reference a given section via wiki links', async () => {
     const { readFile } = await import('node:fs/promises');
     const files = [
