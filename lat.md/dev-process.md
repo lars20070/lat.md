@@ -14,7 +14,7 @@ Vitest is the test runner. Tests live in the top-level `tests/` directory.
 
 ### Test Structure
 
-Tests use a fixture-based approach. `tests/cases/` contains directories that each represent an isolated test scenario. Each case directory has its own `.lat/` and source files forming a self-contained mini-project. The test harness in `tests/cases.test.ts` provides helpers (`caseDir()`, `latDir()`) to point `lat` functions at a given fixture. This avoids creating temp dirs or files at runtime — every scenario is a static fixture on disk.
+Tests use a fixture-based approach. `tests/cases/` contains directories that each represent an isolated test scenario. Each case directory has its own `lat.md/` and source files forming a self-contained mini-project. The test harness in `tests/cases.test.ts` provides helpers (`caseDir()`, `latDir()`) to point `lat` functions at a given fixture. This avoids creating temp dirs or files at runtime — every scenario is a static fixture on disk.
 
 `tests/lattice.test.ts` holds a small number of pure unit tests that use inline strings rather than fixtures (e.g. verifying `parseSections` handles edge cases).
 

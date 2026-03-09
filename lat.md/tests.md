@@ -62,7 +62,7 @@ Given a source file with `@lat: [[Nonexistent]]`, [[cli#check#code-refs]] should
 
 ### Detects missing code mention for required file
 
-Given a `.lat` file with [[markdown#Frontmatter#require-code-mention]] and a leaf section not referenced by any `@lat:` comment in the codebase, [[cli#check#code-refs]] should report the uncovered section.
+Given a `lat.md` file with [[markdown#Frontmatter#require-code-mention]] and a leaf section not referenced by any `@lat:` comment in the codebase, [[cli#check#code-refs]] should report the uncovered section.
 
 ## Locate
 

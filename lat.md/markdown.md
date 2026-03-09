@@ -1,16 +1,16 @@
 # Markdown
 
-Extensions to standard markdown used in `.lat` files.
+Extensions to standard markdown used in `lat.md` files.
 
 ## Wiki Links
 
 Obsidian-style links: `[[target]]` or `[[target|alias]]`. Uses `|` as the alias divider.
 
-Targets are section ids — hierarchical paths like `dev-process#Testing#Running Tests`. Used to cross-reference between `.lat` files and validated by [[cli#check#md]].
+Targets are section ids — hierarchical paths like `dev-process#Testing#Running Tests`. Used to cross-reference between `lat.md` files and validated by [[cli#check#md]].
 
 ## Frontmatter
 
-`.lat` files support YAML frontmatter for per-file configuration:
+`lat.md` files support YAML frontmatter for per-file configuration:
 
 ```yaml
 ---

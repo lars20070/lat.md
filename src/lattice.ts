@@ -46,7 +46,7 @@ export function stripFrontmatter(content: string): string {
 export function findLatticeDir(from?: string): string | null {
   let dir = resolve(from ?? process.cwd());
   while (true) {
-    const candidate = join(dir, '.lat');
+    const candidate = join(dir, 'lat.md');
     if (existsSync(candidate) && statSync(candidate).isDirectory()) {
       return candidate;
     }

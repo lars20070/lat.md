@@ -24,7 +24,7 @@ Usage: `lat refs <query> [--scope=md|code|md+code]`
 
 ### Scope
 
-- `md` (default) — search `.lat` markdown files for wiki links targeting the query
+- `md` (default) — search `lat.md` markdown files for wiki links targeting the query
 - `code` — scan source files for `@lat: [[...]]` comments matching the query
 - `md+code` — both
 
@@ -40,17 +40,17 @@ Implementation: `src/cli/check.ts`
 
 ### md
 
-Validate that all [[parser#Wiki Links]] in `.lat` markdown files point to existing sections.
+Validate that all [[parser#Wiki Links]] in `lat.md` markdown files point to existing sections.
 
 ### code-refs
 
 Two validations:
-1. Every `// @lat: [[...]]` comment in source code must point to a real section in `.lat/`
+1. Every `// @lat: [[...]]` comment in source code must point to a real section in `lat.md/`
 2. For files with [[markdown#Frontmatter#require-code-mention]], every leaf section must be referenced by at least one `// @lat:` comment in the codebase
 
 ## prompt
 
-Expand `[[refs]]` in a prompt text to resolved `.lat` section paths with location context. Designed for coding agents to pipe user prompts through before processing.
+Expand `[[refs]]` in a prompt text to resolved `lat.md` section paths with location context. Designed for coding agents to pipe user prompts through before processing.
 
 Usage: `lat prompt <text>` or `echo "text" | lat prompt`
 

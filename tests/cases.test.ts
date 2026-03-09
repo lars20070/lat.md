@@ -22,7 +22,7 @@ function caseDir(name: string): string {
 }
 
 function latDir(name: string): string {
-  return join(casesDir, name, '.lat');
+  return join(casesDir, name, 'lat.md');
 }
 
 // --- basic-project ---

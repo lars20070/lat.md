@@ -18,7 +18,7 @@ export function resolveContext(opts: {
 
   const latDir = findLatticeDir(opts.dir) ?? '';
   if (!latDir) {
-    console.error(chalk.red('No .lat directory found'));
+    console.error(chalk.red('No lat.md directory found'));
     process.exit(1);
   }
 

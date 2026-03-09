@@ -5,7 +5,7 @@ const IGNORE_DIRS = new Set([
   'node_modules',
   'dist',
   '.git',
-  '.lat',
+  'lat.md',
   '.claude',
 ]);
 
@@ -18,7 +18,7 @@ export async function walkFiles(dir: string): Promise<string[]> {
     if (entry.isDirectory()) {
       // Skip sub-projects that have their own .lat directory
       try {
-        await access(join(full, '.lat'));
+        await access(join(full, 'lat.md'));
         continue;
       } catch {
         // no .lat — descend normally

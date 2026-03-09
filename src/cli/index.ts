@@ -29,7 +29,7 @@ program
   .name('lat')
   .description('Anchor source code to high-level concepts defined in markdown')
   .version(version)
-  .option('--dir <path>', 'project root to look for .lat in (default: cwd)')
+  .option('--dir <path>', 'project root to look for lat.md in (default: cwd)')
   .option('--no-color', 'disable color output');
 
 program
@@ -67,7 +67,7 @@ const check = program
 
 check
   .command('md')
-  .description('Validate wiki links in .lat markdown files')
+  .description('Validate wiki links in lat.md markdown files')
   .action(async () => {
     const ctx = resolveContext(program.opts());
     const { checkMdCmd } = await import('./check.js');
@@ -85,7 +85,7 @@ check
 
 program
   .command('prompt')
-  .description('Expand [[refs]] in a prompt to .lat section locations')
+  .description('Expand [[refs]] in a prompt to lat.md section locations')
   .argument('[text]', 'prompt text')
   .option('--stdin', 'read prompt from stdin')
   .action(async (text: string | undefined, opts: { stdin?: boolean }) => {

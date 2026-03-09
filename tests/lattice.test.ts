@@ -7,7 +7,7 @@ import {
 } from '../src/lattice.js';
 
 const basicDir = join(import.meta.dirname, 'cases', 'basic-project');
-const basicLat = join(basicDir, '.lat');
+const basicLat = join(basicDir, 'lat.md');
 
 describe('findLatticeDir', () => {
   it('finds .lat in the given directory', () => {
