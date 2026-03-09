@@ -4,9 +4,9 @@ Markdown parsing built on unified/remark v11. Entry point: `src/parser.ts`.
 
 ## Wiki Links
 
-Obsidian-style `[[target]]` and `[[target|alias]]` syntax. Uses `|` as the alias divider.
+Custom micromark + mdast extension implementing [[Markdown#Wiki Links]]. Located in `src/extensions/wiki-link/`.
 
-Implemented as a custom micromark + mdast extension in `src/extensions/wiki-link/` because third-party packages are broken with remark v11 / mdast-util-from-markdown v2.
+Built in-house because third-party packages (`mdast-util-wiki-link`, `@portaljs/remark-wiki-link`) are broken with remark v11 / mdast-util-from-markdown v2.
 
 ### Wiki Link Node
 
@@ -21,6 +21,8 @@ Each section has:
 - `startLine` / `endLine` — source positions
 - `body` — first paragraph text (used by [[CLI#Section Preview]])
 - `file` — the file stem (without `.md`)
+
+[[Markdown#Frontmatter]] is stripped before parsing.
 
 ## Refs Extraction
 

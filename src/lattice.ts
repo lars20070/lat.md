@@ -24,6 +24,25 @@ export type Ref = {
   line: number;
 };
 
+export type LatFrontmatter = {
+  requireCodeMention?: boolean;
+};
+
+export function parseFrontmatter(content: string): LatFrontmatter {
+  const match = content.match(/^---\n([\s\S]*?)\n---/);
+  if (!match) return {};
+  const yaml = match[1];
+  const result: LatFrontmatter = {};
+  if (/require-code-mention:\s*true/i.test(yaml)) {
+    result.requireCodeMention = true;
+  }
+  return result;
+}
+
+export function stripFrontmatter(content: string): string {
+  return content.replace(/^---\n[\s\S]*?\n---\n*/, '');
+}
+
 export function findLatticeDir(from?: string): string | null {
   let dir = resolve(from ?? process.cwd());
   while (true) {
@@ -66,7 +85,7 @@ function lastLine(content: string): number {
 }
 
 export function parseSections(filePath: string, content: string): Section[] {
-  const tree = parse(content);
+  const tree = parse(stripFrontmatter(content));
   const file = basename(filePath, '.md');
   const roots: Section[] = [];
   const stack: Section[] = [];
@@ -147,7 +166,7 @@ export async function loadAllSections(latticeDir: string): Promise<Section[]> {
   return all;
 }
 
-function flattenSections(sections: Section[]): Section[] {
+export function flattenSections(sections: Section[]): Section[] {
   const result: Section[] = [];
   for (const s of sections) {
     result.push(s);
@@ -163,7 +182,7 @@ export function findSections(sections: Section[], query: string): Section[] {
 }
 
 export function extractRefs(filePath: string, content: string): Ref[] {
-  const tree = parse(content);
+  const tree = parse(stripFrontmatter(content));
   const file = basename(filePath, '.md');
   const refs: Ref[] = [];
 

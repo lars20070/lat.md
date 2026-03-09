@@ -1,0 +1,62 @@
+import { readFile, readdir } from 'node:fs/promises';
+import { join, relative } from 'node:path';
+
+const IGNORE_DIRS = new Set([
+  'node_modules',
+  'dist',
+  '.git',
+  '.lat',
+  '.claude',
+]);
+
+export async function walkFiles(dir: string): Promise<string[]> {
+  const entries = await readdir(dir, { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries) {
+    if (IGNORE_DIRS.has(entry.name)) continue;
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...(await walkFiles(full)));
+    } else if (entry.isFile() && !entry.name.endsWith('.md')) {
+      files.push(full);
+    }
+  }
+  return files;
+}
+
+// Only match @lat: in line comments (// or #)
+export const LAT_REF_RE = /\/\/\s*@lat:\s*\[\[([^\]]+)\]\]/g;
+
+export type CodeRef = {
+  target: string;
+  file: string;
+  line: number;
+};
+
+export async function scanCodeRefs(projectRoot: string): Promise<CodeRef[]> {
+  const files = await walkFiles(projectRoot);
+  const refs: CodeRef[] = [];
+
+  for (const file of files) {
+    let content: string;
+    try {
+      content = await readFile(file, 'utf-8');
+    } catch {
+      continue;
+    }
+    const lines = content.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      let match;
+      LAT_REF_RE.lastIndex = 0;
+      while ((match = LAT_REF_RE.exec(lines[i])) !== null) {
+        refs.push({
+          target: match[1],
+          file: relative(process.cwd(), file),
+          line: i + 1,
+        });
+      }
+    }
+  }
+
+  return refs;
+}

@@ -26,11 +26,21 @@ Implementation: `src/cli/refs.ts`
 
 ## check
 
-Validate that all [[Parser#Wiki Links]] in `.lat` markdown files point to existing sections. Exits with error if any broken links are found.
+Validation command group. Runs all checks when invoked without a subcommand.
 
-Usage: `lat check`
+Usage: `lat check [md|code-refs]`
 
 Implementation: `src/cli/check.ts`
+
+### md
+
+Validate that all [[Parser#Wiki Links]] in `.lat` markdown files point to existing sections.
+
+### code-refs
+
+Two validations:
+1. Every `// @lat: [[...]]` comment in source code must point to a real section in `.lat/`
+2. For files with [[Markdown#Frontmatter#require-code-mention]], every leaf section must be referenced by at least one `// @lat:` comment in the codebase
 
 ## Section Preview
 

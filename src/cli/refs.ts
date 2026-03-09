@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { join, relative } from 'node:path';
+import { join } from 'node:path';
 import {
   findLatticeDir,
   listLatticeFiles,
@@ -8,6 +8,7 @@ import {
   type Section,
 } from '../lattice.js';
 import { formatSectionPreview } from '../format.js';
+import { scanCodeRefs } from '../code-refs.js';
 
 type Scope = 'md' | 'code' | 'md+code';
 
@@ -35,59 +36,6 @@ function parseArgs(args: string[]): { query: string; scope: Scope } {
   }
 
   return { query: rest[0], scope };
-}
-
-const IGNORE_DIRS = new Set([
-  'node_modules',
-  'dist',
-  '.git',
-  '.lat',
-  '.claude',
-]);
-
-async function walkFiles(dir: string): Promise<string[]> {
-  const { readdir } = await import('node:fs/promises');
-  const entries = await readdir(dir, { withFileTypes: true });
-  const files: string[] = [];
-  for (const entry of entries) {
-    if (IGNORE_DIRS.has(entry.name)) continue;
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...(await walkFiles(full)));
-    } else if (entry.isFile()) {
-      files.push(full);
-    }
-  }
-  return files;
-}
-
-const LAT_REF_RE = /@lat:\s*\[\[([^\]]+)\]\]/g;
-
-async function searchCode(
-  projectRoot: string,
-  query: string,
-): Promise<string[]> {
-  const files = await walkFiles(projectRoot);
-  const q = query.toLowerCase();
-  const results: string[] = [];
-
-  for (const file of files) {
-    const content = await readFile(file, 'utf-8');
-    const lines = content.split('\n');
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      let match;
-      LAT_REF_RE.lastIndex = 0;
-      while ((match = LAT_REF_RE.exec(line)) !== null) {
-        if (match[1].toLowerCase() === q) {
-          const relPath = relative(process.cwd(), file);
-          results.push(`  ${relPath}:${i + 1}  ${line.trim()}`);
-        }
-      }
-    }
-  }
-
-  return results;
 }
 
 export async function refs(args: string[]): Promise<void> {
@@ -146,11 +94,13 @@ export async function refs(args: string[]): Promise<void> {
   if (scope === 'code' || scope === 'md+code') {
     // Project root is the parent of .lat
     const projectRoot = join(latticeDir, '..');
-    const codeResults = await searchCode(projectRoot, query);
-    for (const result of codeResults) {
-      if (hasOutput) console.log('');
-      console.log(result);
-      hasOutput = true;
+    const codeRefs = await scanCodeRefs(projectRoot);
+    for (const ref of codeRefs) {
+      if (ref.target.toLowerCase() === q) {
+        if (hasOutput) console.log('');
+        console.log(`  ${ref.file}:${ref.line}`);
+        hasOutput = true;
+      }
     }
   }
 

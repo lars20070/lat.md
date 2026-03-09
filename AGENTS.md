@@ -6,7 +6,8 @@ The `.lat/` directory contains the authoritative description of this codebase. B
 
 Current files:
 - `.lat/cli.md` — CLI commands (`locate`, `refs`, `check`) and their behavior
-- `.lat/parser.md` — markdown parsing, wiki links, sections, refs extraction
+- `.lat/markdown.md` — syntax extensions: wiki links, frontmatter
+- `.lat/parser.md` — internal parsing: remark pipeline, wiki link AST nodes, section extraction
 - `.lat/dev-process.md` — tooling, testing, formatting, publishing
 - `.lat/tests.md` — high-level test descriptions; actual tests reference these via `// @lat: [[...]]` comments
 - `.lat/website.md` — the lat.md website (separate Next.js subproject)

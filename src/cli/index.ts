@@ -20,7 +20,7 @@ if (!handler) {
 Commands:
   locate <query>                          Find sections by id
   refs <query> [--scope=md|code|md+code]  Find references to a section
-  check                                   Validate all wiki links in .lat`);
+  check [md|code-refs]                    Validate links and code references`);
   process.exit(1);
 }
 

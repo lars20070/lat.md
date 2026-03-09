@@ -1,3 +1,7 @@
+---
+lat:
+  require-code-mention: true
+---
 # Tests
 
 High-level test descriptions. Actual test code lives in `tests/`.
@@ -32,15 +36,25 @@ Verify [[CLI#Section Preview]] output includes section id, file path with line r
 
 Verify [[CLI#Section Preview]] omits the body lines when a section has no paragraph content.
 
-## Link Checking
+## Check MD
 
 ### Detects broken links
 
-Given a file with a wiki link pointing to a nonexistent section, [[CLI#check]] should report it as a broken link.
+Given a file with a wiki link pointing to a nonexistent section, [[CLI#check#md]] should report it as a broken link.
 
 ### Passes with valid links
 
-Given files where all wiki links resolve to existing sections, [[CLI#check]] should report no errors.
+Given files where all wiki links resolve to existing sections, [[CLI#check#md]] should report no errors.
+
+## Check Code Refs
+
+### Detects dangling code ref
+
+Given a source file with `@lat: [[Nonexistent]]`, [[CLI#check#code-refs]] should report it as pointing to a nonexistent section.
+
+### Detects missing code mention for required file
+
+Given a `.lat` file with [[Markdown#Frontmatter#require-code-mention]] and a leaf section not referenced by any `@lat:` comment in the codebase, [[CLI#check#code-refs]] should report the uncovered section.
 
 ## Locate
 

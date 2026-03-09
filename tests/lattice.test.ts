@@ -10,7 +10,7 @@ import {
   extractRefs,
 } from '../src/lattice.js';
 import { formatSectionPreview } from '../src/format.js';
-import { checkLinks } from '../src/cli/check.js';
+import { checkMd, checkCodeRefs } from '../src/cli/check.js';
 
 const fixtureDir = join(import.meta.dirname, '.lat');
 
@@ -160,8 +160,8 @@ describe('formatSectionPreview', () => {
   });
 });
 
-describe('check', () => {
-  // @lat: [[Tests#Link Checking#Detects broken links]]
+describe('check md', () => {
+  // @lat: [[Tests#Check MD#Detects broken links]]
   it('detects broken wiki links', async () => {
     const { mkdtempSync, writeFileSync, mkdirSync } = await import('node:fs');
     const { tmpdir } = await import('node:os');
@@ -173,13 +173,13 @@ describe('check', () => {
       '# Alpha\n\nSee [[Nonexistent#Thing]] for details.\n',
     );
 
-    const errors = await checkLinks(latDir);
+    const errors = await checkMd(latDir);
     expect(errors).toHaveLength(1);
     expect(errors[0].target).toBe('Nonexistent#Thing');
     expect(errors[0].line).toBe(3);
   });
 
-  // @lat: [[Tests#Link Checking#Passes with valid links]]
+  // @lat: [[Tests#Check MD#Passes with valid links]]
   it('passes when all links are valid', async () => {
     const { mkdtempSync, writeFileSync, mkdirSync } = await import('node:fs');
     const { tmpdir } = await import('node:os');
@@ -191,8 +191,50 @@ describe('check', () => {
       '# Alpha\n\n## Beta\n\nSee [[Alpha#Beta]] here.\n',
     );
 
-    const errors = await checkLinks(latDir);
+    const errors = await checkMd(latDir);
     expect(errors).toHaveLength(0);
+  });
+});
+
+describe('check code-refs', () => {
+  // @lat: [[Tests#Check Code Refs#Detects dangling code ref]]
+  it('detects @lat comments pointing to nonexistent sections', async () => {
+    const { mkdtempSync, writeFileSync, mkdirSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const dir = mkdtempSync(join(tmpdir(), 'lat-coderef-'));
+    const latDir = join(dir, '.lat');
+    mkdirSync(latDir);
+    writeFileSync(join(latDir, 'a.md'), '# Alpha\n\n## Beta\n\nSome text.\n');
+    const latComment = ['/', '/ @lat: [[Alpha#Nonexistent]]'].join('');
+    writeFileSync(join(dir, 'app.ts'), latComment + '\nconst x = 1;\n');
+
+    const errors = await checkCodeRefs(latDir);
+    const dangling = errors.filter((e) => e.target === 'Alpha#Nonexistent');
+    expect(dangling).toHaveLength(1);
+    expect(dangling[0].message).toContain('no matching section found');
+  });
+
+  // @lat: [[Tests#Check Code Refs#Detects missing code mention for required file]]
+  it('detects uncovered leaf sections in require-code-mention files', async () => {
+    const { mkdtempSync, writeFileSync, mkdirSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const dir = mkdtempSync(join(tmpdir(), 'lat-coderef-'));
+    const latDir = join(dir, '.lat');
+    mkdirSync(latDir);
+    writeFileSync(
+      join(latDir, 'specs.md'),
+      '---\nlat:\n  require-code-mention: true\n---\n# Specs\n\n## Must Do X\n\nDescription.\n\n## Must Do Y\n\nDescription.\n',
+    );
+    // Only cover one of the two leaf sections
+    const latComment = ['/', '/ @lat: [[Specs#Must Do X]]'].join('');
+    writeFileSync(join(dir, 'app.ts'), latComment + '\nconst x = 1;\n');
+
+    const errors = await checkCodeRefs(latDir);
+    const uncovered = errors.filter((e) =>
+      e.message.includes('requires a code mention'),
+    );
+    expect(uncovered).toHaveLength(1);
+    expect(uncovered[0].target).toBe('Specs#Must Do Y');
   });
 });
 
