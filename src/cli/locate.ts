@@ -11,7 +11,7 @@ export async function locate(args: string[]): Promise<void> {
 
   const latticeDir = findLatticeDir();
   if (!latticeDir) {
-    console.error('No .lattice directory found');
+    console.error('No .lat directory found');
     process.exit(1);
   }
 

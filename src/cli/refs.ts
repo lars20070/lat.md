@@ -41,7 +41,7 @@ const IGNORE_DIRS = new Set([
   'node_modules',
   'dist',
   '.git',
-  '.lattice',
+  '.lat',
   '.claude',
 ]);
 
@@ -95,7 +95,7 @@ export async function refs(args: string[]): Promise<void> {
 
   const latticeDir = findLatticeDir();
   if (!latticeDir) {
-    console.error('No .lattice directory found');
+    console.error('No .lat directory found');
     process.exit(1);
   }
 
@@ -144,7 +144,7 @@ export async function refs(args: string[]): Promise<void> {
   }
 
   if (scope === 'code' || scope === 'md+code') {
-    // Project root is the parent of .lattice
+    // Project root is the parent of .lat
     const projectRoot = join(latticeDir, '..');
     const codeResults = await searchCode(projectRoot, query);
     for (const result of codeResults) {

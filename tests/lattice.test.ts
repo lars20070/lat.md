@@ -11,20 +11,20 @@ import {
 } from '../src/lattice.js';
 import { formatSectionPreview } from '../src/format.js';
 
-const fixtureDir = join(import.meta.dirname, '.lattice');
+const fixtureDir = join(import.meta.dirname, '.lat');
 
 describe('findLatticeDir', () => {
-  it('finds .lattice in the given directory', () => {
+  it('finds .lat in the given directory', () => {
     expect(findLatticeDir(import.meta.dirname)).toBe(fixtureDir);
   });
 
-  it('finds .lattice in a parent directory', () => {
-    // tests/.lattice exists, so searching from a child should find it
+  it('finds .lat in a parent directory', () => {
+    // tests/.lat exists, so searching from a child should find it
     // Create a synthetic deep path under tests/
     expect(findLatticeDir(fixtureDir)).toBe(fixtureDir);
   });
 
-  it('returns null when no .lattice exists', () => {
+  it('returns null when no .lat exists', () => {
     expect(findLatticeDir('/')).toBeNull();
   });
 });
