@@ -1,40 +1,73 @@
-# Agents
+# Before starting work
 
-## Source of Truth
+- Run `lat search` to find sections relevant to your task. Read them to understand the design intent before writing code.
+- Run `lat prompt` on user prompts to expand any `[[refs]]` — this resolves section names to file locations and provides context.
 
-The `lat.md/` directory contains the authoritative description of this codebase. Before making changes, read the relevant `lat.md/*.md` files to understand the concepts, architecture, and conventions.
+# Post-task checklist (REQUIRED — do not skip)
 
-Current files:
-- `lat.md/cli.md` — CLI commands (`locate`, `refs`, `check`, `search`, `prompt`, `init`) and their behavior
-- `lat.md/markdown.md` — syntax extensions: wiki links, frontmatter
-- `lat.md/parser.md` — internal parsing: remark pipeline, wiki link AST nodes, section extraction
-- `lat.md/dev-process.md` — tooling, testing, formatting, publishing
-- `lat.md/tests.md` — high-level test descriptions; actual tests reference these via `// @lat: [[...]]` comments
-- `lat.md/website.md` — the lat.md website (separate Next.js subproject)
+After EVERY task, before responding to the user:
 
-## Maintaining `lat.md`
+- [ ] Update `lat.md/` if you added or changed any functionality, architecture, tests, or behavior
+- [ ] Run `lat check` — all wiki links and code refs must pass
+- [ ] Do not skip these steps. Do not consider your task done until both are complete.
 
-When you add new functionality, commands, or change how the project is structured (e.g. test strategy, build pipeline, directory layout):
-1. Update the relevant `lat.md/*.md` file, or create a new one if no existing file fits
-2. Cross-link between files using wiki links: `[[file-stem#Heading#SubHeading]]` (e.g. `[[cli#search#Indexing]]`). The file stem is the markdown filename without `.md`.
-3. Keep descriptions high-level — what things do and why, not implementation minutiae
-4. **Always run `lat check` after updating `lat.md/` files** — all wiki links must resolve to existing sections. Do not leave broken links.
+---
 
-## Using `lat`
+# What is lat.md?
 
-- `lat locate "<section>"` — find a section by id (supports exact, subsection, and fuzzy matching)
-- `lat refs "<section>"` — find what references a section
-- `lat search "<natural language query>"` — semantic search across all sections using vector embeddings (requires `LAT_LLM_KEY` env var)
-- `lat prompt "<text>"` — expand `[[refs]]` in a prompt to resolved section locations; pipe user prompts through this before processing
+This project uses [lat.md](https://www.npmjs.com/package/lat.md) to maintain a structured knowledge graph of its architecture, design decisions, and test specs in the `lat.md/` directory. It is a set of cross-linked markdown files that describe **what** this project does and **why** — the domain concepts, key design decisions, business logic, and test specifications. Use it to ground your work in the actual architecture rather than guessing.
 
-## Code Conventions
+# Commands
 
-See `lat.md/dev-process.md` for the full list. Key points:
-- TypeScript ESM, strict mode
-- pnpm only
-- `pnpm test` must pass (includes typecheck)
-- Prettier: no semicolons, single quotes, trailing commas
+```bash
+lat locate "Section Name"      # find a section by name (exact, fuzzy)
+lat refs "file#Section"        # find what references a section
+lat search "natural language"  # semantic search across all sections
+lat prompt "user prompt text"  # expand [[refs]] to resolved locations
+lat check                      # validate all links and code refs
+```
 
-## Verification
+Run `lat --help` when in doubt about available commands or options.
 
-After making changes, run `pnpm build && pnpm test`. This includes typecheck, `lat check` (wiki links + code refs), and all tests. Everything must pass before considering work complete.
+If `lat search` fails because `LAT_LLM_KEY` is not set, explain to the user that semantic search requires an API key (`export LAT_LLM_KEY=sk-...` for OpenAI or `export LAT_LLM_KEY=vck_...` for Vercel). If the user doesn't want to set it up, use `lat locate` for direct lookups instead.
+
+# Syntax primer
+
+- **Section ids**: `file-stem#Heading#SubHeading` (e.g. `cli#search#Indexing`)
+- **Wiki links**: `[[target]]` or `[[target|alias]]` — cross-references between sections
+- **Code refs**: `// @lat: [[section-id]]` (JS/TS) or `# @lat: [[section-id]]` (Python) — ties source code to concepts
+
+# Test specs
+
+Key tests can be described as sections in `lat.md/` files (e.g. `tests.md`). Add frontmatter to require that every leaf section is referenced by a `// @lat:` or `# @lat:` comment in test code:
+
+```markdown
+---
+lat:
+  require-code-mention: true
+---
+# Tests
+
+## User login
+### Rejects expired tokens
+Tokens past their expiry timestamp are rejected with 401, even if otherwise valid.
+
+### Handles missing password
+Login request without a password field returns 400 with a descriptive error.
+```
+
+Every section MUST have a description — at least one sentence explaining what the test verifies and why. Empty sections with just a heading are not acceptable.
+
+Each test in code should reference its spec with exactly one comment placed next to the relevant test — not at the top of the file:
+
+```python
+# @lat: [[tests#User login#Rejects expired tokens]]
+def test_rejects_expired_tokens():
+    ...
+
+# @lat: [[tests#User login#Handles missing password]]
+def test_handles_missing_password():
+    ...
+```
+
+Do not duplicate refs. One `@lat:` comment per spec section, placed at the test that covers it. `lat check` will flag any spec section not covered by a code reference, and any code reference pointing to a nonexistent section.
