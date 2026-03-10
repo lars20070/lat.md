@@ -2,10 +2,10 @@ import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
   title: 'lat.md',
-  description: 'A knowledge graph for your codebase, written in markdown',
+  description: 'Structure your codebase knowledge in markdown for humans and agents',
   openGraph: {
-    title: 'lat.md',
-    description: 'A knowledge graph for your codebase, written in markdown',
+    title: 'lat.md — a knowledge graph for your codebase',
+    description: 'Structure your codebase knowledge in markdown for humans and agents',
     url: 'https://lat.md',
     siteName: 'lat.md',
     images: [{ url: '/og.jpg', width: 1200, height: 630 }],
@@ -13,8 +13,8 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'lat.md',
-    description: 'A knowledge graph for your codebase, written in markdown',
+    title: 'lat.md — a knowledge graph for your codebase',
+    description: 'Structure your codebase knowledge in markdown for humans and agents',
     images: ['/og.jpg'],
   },
 }
