@@ -3,6 +3,20 @@ import type { Metadata } from 'next'
 export const metadata: Metadata = {
   title: 'lat.md',
   description: 'A knowledge graph for your codebase, written in markdown',
+  openGraph: {
+    title: 'lat.md',
+    description: 'A knowledge graph for your codebase, written in markdown',
+    url: 'https://lat.md',
+    siteName: 'lat.md',
+    images: [{ url: '/og.jpg', width: 1200, height: 630 }],
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'lat.md',
+    description: 'A knowledge graph for your codebase, written in markdown',
+    images: ['/og.jpg'],
+  },
 }
 
 export default function RootLayout({
