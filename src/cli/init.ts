@@ -12,6 +12,12 @@ import { createInterface } from 'node:readline/promises';
 import chalk from 'chalk';
 import { findTemplatesDir } from './templates.js';
 import { readAgentsTemplate, readCursorRulesTemplate } from './gen.js';
+import {
+  getLlmKey,
+  getConfigPath,
+  readConfig,
+  writeConfig,
+} from '../config.js';
 
 async function confirm(
   rl: ReturnType<typeof createInterface>,
@@ -22,6 +28,19 @@ async function confirm(
     return answer.trim().toLowerCase() !== 'n';
   } catch {
     // Ctrl+C or closed stdin — abort
+    console.log('');
+    process.exit(130);
+  }
+}
+
+async function prompt(
+  rl: ReturnType<typeof createInterface>,
+  message: string,
+): Promise<string> {
+  try {
+    const answer = await rl.question(message);
+    return answer.trim();
+  } catch {
     console.log('');
     process.exit(130);
   }
@@ -174,13 +193,25 @@ async function setupClaudeCode(
   const claudePath = join(root, 'CLAUDE.md');
   if (!existsSync(claudePath)) {
     writeFileSync(claudePath, template);
-    console.log(chalk.green('Created CLAUDE.md'));
+    console.log(chalk.green('  Created CLAUDE.md'));
     created.push('CLAUDE.md');
   } else {
-    console.log(chalk.green('CLAUDE.md') + ' already exists');
+    console.log(chalk.green('  CLAUDE.md') + ' already exists');
   }
 
   // Prompt hook
+  console.log('');
+  console.log(
+    chalk.dim(
+      "  Claude Code doesn't reliably follow CLAUDE.md for per-prompt actions,",
+    ),
+  );
+  console.log(
+    chalk.dim(
+      '  so we install a hook that injects lat.md workflow reminders into every prompt.',
+    ),
+  );
+
   const claudeDir = join(root, '.claude');
   const hooksDir = join(claudeDir, 'hooks');
   const hookPath = join(hooksDir, 'lat-prompt-hook.sh');
@@ -199,14 +230,24 @@ async function setupClaudeCode(
   }
 
   // MCP server → .mcp.json at project root
+  console.log('');
+  console.log(
+    chalk.dim(
+      '  Agents can call `lat` from the command line, but an MCP server gives lat',
+    ),
+  );
+  console.log(
+    chalk.dim(
+      '  more visibility and makes agents more likely to use it proactively.',
+    ),
+  );
+
   const mcpPath = join(root, '.mcp.json');
   if (hasMcpServer(mcpPath)) {
     console.log(chalk.green('  MCP server') + ' already configured');
   } else {
     addMcpServer(mcpPath);
-    console.log(
-      chalk.green('  MCP server') + ' registered in .mcp.json',
-    );
+    console.log(chalk.green('  MCP server') + ' registered in .mcp.json');
     created.push('.mcp.json');
   }
 
@@ -232,6 +273,18 @@ async function setupCursor(root: string): Promise<string[]> {
   }
 
   // .cursor/mcp.json
+  console.log('');
+  console.log(
+    chalk.dim(
+      '  Agents can call `lat` from the command line, but an MCP server gives lat',
+    ),
+  );
+  console.log(
+    chalk.dim(
+      '  more visibility and makes agents more likely to use it proactively.',
+    ),
+  );
+
   const mcpPath = join(root, '.cursor', 'mcp.json');
   if (hasMcpServer(mcpPath)) {
     console.log(chalk.green('  MCP server') + ' already configured');
@@ -274,6 +327,18 @@ async function setupCopilot(root: string): Promise<string[]> {
   }
 
   // .vscode/mcp.json
+  console.log('');
+  console.log(
+    chalk.dim(
+      '  Agents can call `lat` from the command line, but an MCP server gives lat',
+    ),
+  );
+  console.log(
+    chalk.dim(
+      '  more visibility and makes agents more likely to use it proactively.',
+    ),
+  );
+
   const mcpPath = join(root, '.vscode', 'mcp.json');
   if (hasMcpServer(mcpPath)) {
     console.log(chalk.green('  MCP server') + ' already configured');
@@ -286,6 +351,123 @@ async function setupCopilot(root: string): Promise<string[]> {
   }
 
   return created;
+}
+
+// ── LLM key setup ───────────────────────────────────────────────────
+
+async function setupLlmKey(
+  rl: ReturnType<typeof createInterface> | null,
+): Promise<void> {
+  console.log('');
+  console.log(chalk.bold('Semantic search'));
+  console.log('');
+  console.log(
+    '  lat.md includes semantic search (' +
+      chalk.cyan('lat search') +
+      ') that lets agents find',
+  );
+  console.log(
+    '  relevant documentation by meaning, not just keywords. This requires an',
+  );
+  console.log(
+    '  embedding API key (OpenAI or Vercel AI). Without it, agents can still',
+  );
+  console.log(
+    '  use ' +
+      chalk.cyan('lat locate') +
+      ' for exact lookups, but will miss semantic matches.',
+  );
+  console.log('');
+
+  // Check env var first
+  const envKey = process.env.LAT_LLM_KEY;
+  if (envKey) {
+    console.log(
+      chalk.green('  LAT_LLM_KEY') +
+        ' is set in your environment. Semantic search is ready.',
+    );
+    return;
+  }
+
+  // Check existing config
+  const config = readConfig();
+  const configPath = getConfigPath();
+  if (config.llm_key) {
+    console.log(
+      chalk.green('  LLM key') +
+        ' already configured in ' +
+        chalk.dim(configPath),
+    );
+    return;
+  }
+
+  // Interactive prompt
+  if (!rl) {
+    console.log(
+      chalk.yellow('  No LLM key found.') +
+        ' Set LAT_LLM_KEY env var or run ' +
+        chalk.cyan('lat init') +
+        ' interactively.',
+    );
+    return;
+  }
+
+  console.log(
+    '  You can provide a key now, or skip and set ' +
+      chalk.cyan('LAT_LLM_KEY') +
+      ' env var later.',
+  );
+  console.log(
+    '  Supported: OpenAI (' +
+      chalk.dim('sk-...') +
+      ') or Vercel AI (' +
+      chalk.dim('vck_...') +
+      ')',
+  );
+  console.log('');
+
+  const key = await prompt(rl, `  Paste your key (or press Enter to skip): `);
+
+  if (!key) {
+    console.log(
+      chalk.dim('  Skipped.') +
+        ' You can set ' +
+        chalk.cyan('LAT_LLM_KEY') +
+        ' later or re-run ' +
+        chalk.cyan('lat init') +
+        '.',
+    );
+    return;
+  }
+
+  // Validate prefix
+  if (key.startsWith('sk-ant-')) {
+    console.log(
+      chalk.red('  That looks like an Anthropic key.') +
+        " Anthropic doesn't offer embeddings.",
+    );
+    console.log(
+      '  lat.md needs an OpenAI (' +
+        chalk.dim('sk-...') +
+        ') or Vercel AI (' +
+        chalk.dim('vck_...') +
+        ') key.',
+    );
+    return;
+  }
+
+  if (!key.startsWith('sk-') && !key.startsWith('vck_')) {
+    console.log(
+      chalk.yellow('  Unrecognized key prefix.') +
+        ' Expected sk-... (OpenAI) or vck_... (Vercel AI).',
+    );
+    console.log('  Saving anyway — you can update it later.');
+  }
+
+  // Save to config
+  const updatedConfig = { ...config, llm_key: key };
+  writeConfig(updatedConfig);
+  console.log(chalk.green('  Key saved') + ' to ' + chalk.dim(configPath));
 }
 
 // ── Main init flow ───────────────────────────────────────────────────
@@ -377,6 +559,9 @@ export async function initCmd(targetDir?: string): Promise<void> {
       );
     }
 
+    // Step 5: LLM key setup
+    await setupLlmKey(rl);
+
     console.log('');
     console.log(
       chalk.green('Done!') +
@@ -384,18 +569,6 @@ export async function initCmd(targetDir?: string): Promise<void> {
         chalk.cyan('lat check') +
         ' to validate your setup.',
     );
-
-    if (!process.env.LAT_LLM_KEY) {
-      console.log('');
-      console.log(
-        chalk.yellow('Tip:') +
-          ' Set ' +
-          chalk.cyan('LAT_LLM_KEY') +
-          ' to enable semantic search (' +
-          chalk.dim('export LAT_LLM_KEY=sk-... or vck_...') +
-          ')',
-      );
-    }
   } finally {
     rl?.close();
   }

@@ -1,0 +1,51 @@
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+import xdg from '@folder/xdg';
+
+// ── XDG config directory ────────────────────────────────────────────
+
+export function getConfigDir(): string {
+  return join(xdg().config, 'lat');
+}
+
+export function getConfigPath(): string {
+  return join(getConfigDir(), 'config.json');
+}
+
+// ── Config read/write ───────────────────────────────────────────────
+
+export type LatConfig = {
+  llm_key?: string;
+};
+
+export function readConfig(): LatConfig {
+  const configPath = getConfigPath();
+  if (!existsSync(configPath)) return {};
+  try {
+    return JSON.parse(readFileSync(configPath, 'utf-8'));
+  } catch {
+    return {};
+  }
+}
+
+export function writeConfig(config: LatConfig): void {
+  const dir = getConfigDir();
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(getConfigPath(), JSON.stringify(config, null, 2) + '\n');
+}
+
+// ── Centralized LLM key resolution ─────────────────────────────────
+
+/**
+ * Returns the LLM key from (in priority order):
+ * 1. LAT_LLM_KEY environment variable
+ * 2. llm_key field in ~/.config/lat/config.json
+ *
+ * Returns undefined if neither is set.
+ */
+export function getLlmKey(): string | undefined {
+  const envKey = process.env.LAT_LLM_KEY;
+  if (envKey) return envKey;
+  const config = readConfig();
+  return config.llm_key || undefined;
+}

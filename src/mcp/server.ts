@@ -105,13 +105,14 @@ export async function startMcpServer(): Promise<void> {
         .describe('Max results (default 5)'),
     },
     async ({ query, limit }) => {
-      const key = process.env.LAT_LLM_KEY;
+      const { getLlmKey } = await import('../config.js');
+      const key = getLlmKey();
       if (!key) {
         return {
           content: [
             {
               type: 'text' as const,
-              text: 'LAT_LLM_KEY is not set. Set it to an OpenAI (sk-...) or Vercel AI (vck_...) key.',
+              text: 'No LLM key found. Set LAT_LLM_KEY env var or run `lat init` to save a key in ~/.config/lat/config.json.',
             },
           ],
           isError: true,

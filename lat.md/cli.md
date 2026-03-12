@@ -99,7 +99,8 @@ Steps:
 1. **lat.md/ directory** — if not present, asks whether to create it. Scaffolds from `templates/init/` (`.gitignore` and `README.md`). If it already exists, skips ahead.
 2. **Agent selection** — asks which coding agents the user uses (Claude Code, Cursor, VS Code Copilot, Codex/OpenCode). Each gets a Y/n prompt.
 3. **AGENTS.md** — created if a non-Claude agent is selected (Cursor, Copilot, Codex). Shared instruction file.
-4. **Per-agent setup** — configures each selected agent:
+4. **Per-agent setup** — configures each selected agent (see subsections below). Each step prints a brief explanation of *why* it's needed (e.g. why a hook is used instead of CLAUDE.md, why MCP is registered alongside CLI access).
+5. **LLM key setup** — checks for an existing key (env var or [[cli#Configuration File]]), and if missing, interactively prompts the user to paste one. Explains what semantic search is and why a key is needed before asking.
 
 ### Claude Code
 
@@ -124,6 +125,17 @@ Steps:
 All setup steps are idempotent — existing configuration is detected and skipped.
 
 Implementation: `src/cli/init.ts`
+
+## Configuration File
+
+User-level configuration is stored in `~/.config/lat/config.json` (XDG Base Directory on Linux/macOS, `%APPDATA%\lat\config.json` on Windows). The `XDG_CONFIG_HOME` env var is respected if set.
+
+Currently supports one field:
+- `llm_key` — embedding API key for semantic search, used when `LAT_LLM_KEY` env var is not set
+
+Key resolution order: `LAT_LLM_KEY` env var takes priority, then `llm_key` from the config file. This applies everywhere: `lat search`, `lat check`, and the MCP `lat_search` tool.
+
+Implementation: `src/config.ts`
 
 ## mcp
 
@@ -155,7 +167,7 @@ Implementation: `src/cli/search.ts`, core logic in `src/search/`
 
 ### Provider Detection
 
-Requires `LAT_LLM_KEY` env var. Provider is auto-detected from key prefix:
+Requires an LLM key (see [[cli#Configuration File]] for resolution order). Provider is auto-detected from key prefix:
 - `sk-...` — OpenAI (uses `text-embedding-3-small`, 1536 dims)
 - `vck_...` — Vercel AI Gateway (uses `openai/text-embedding-3-small`, 1536 dims)
 - `sk-ant-...` — Anthropic (not supported, errors with guidance)
