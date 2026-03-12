@@ -45,7 +45,7 @@ Published to npm as `lat.md`. The `bin` entry exposes the `lat` command. Only `d
 
 How to publish a new version:
 
-1. **Compile changelog** — run `git log --oneline` since the last version bump commit (look for commits matching `Bump to X.Y.Z`) and summarize notable changes as bullet points
+1. **Compile changelog** — run `git log --oneline` since the last version bump commit (look for commits matching `Bump to X.Y.Z`) and summarize notable changes as bullet points. Only include user-facing features, fixes, and behavioral changes — skip doc-only updates, refactors, and other commits that don't affect functionality
 2. **Create a release branch** — branch off `main`, e.g. `release/0.1.5`
 3. **Bump version** — update `version` in `package.json`. Commit message: `Bump to X.Y.Z`
 4. **Switch back to main** — check out `main` so the working tree is not left on the release branch
