@@ -8,7 +8,7 @@ Tests in `tests/search.test.ts`.
 
 ## Provider Detection
 
-Unit tests (always run). Verify `detectProvider` correctly identifies OpenAI (`sk-`), Vercel (`vck_`), rejects Anthropic (`sk-ant-`) with a helpful message, and rejects unknown prefixes.
+Unit tests (always run). Verify `detectProvider` correctly identifies OpenAI (`sk-`), Vercel (`vck_`), DeepInfra (`di_`), rejects Anthropic (`sk-ant-`) with a helpful message, and rejects unknown prefixes. For DeepInfra, also verify that the `di_` prefix is stripped from the key before it appears in the `Authorization` header.
 
 ## RAG Replay Tests
 

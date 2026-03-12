@@ -27,6 +27,16 @@ describe('detectProvider', () => {
     expect(p.name).toBe('vercel');
   });
 
+  it('detects DeepInfra key', () => {
+    const p = detectProvider('di_abc123');
+    expect(p.name).toBe('deepinfra');
+  });
+
+  it('strips di_ prefix from DeepInfra key in Authorization header', () => {
+    const p = detectProvider('di_abc123');
+    expect(p.headers('di_abc123').Authorization).toBe('Bearer abc123');
+  });
+
   it('rejects Anthropic key with helpful message', () => {
     expect(() => detectProvider('sk-ant-abc123')).toThrow(/Anthropic/);
   });

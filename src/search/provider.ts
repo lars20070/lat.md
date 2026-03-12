@@ -28,6 +28,17 @@ const vercel: EmbeddingProvider = {
   }),
 };
 
+const deepinfra: EmbeddingProvider = {
+  name: 'deepinfra',
+  apiBase: 'https://api.deepinfra.com/v1/openai',
+  model: 'Qwen/Qwen3-Embedding-0.6B',
+  dimensions: 1024,
+  headers: (key) => ({
+    Authorization: `Bearer ${key.startsWith('di_') ? key.slice('di_'.length) : key}`,
+    'Content-Type': 'application/json',
+  }),
+};
+
 export function detectProvider(key: string): EmbeddingProvider {
   if (key.startsWith('REPLAY_LAT_LLM_KEY::')) {
     const replayUrl = key.slice('REPLAY_LAT_LLM_KEY::'.length);
@@ -46,7 +57,8 @@ export function detectProvider(key: string): EmbeddingProvider {
   }
   if (key.startsWith('vck_')) return vercel;
   if (key.startsWith('sk-')) return openai;
+  if (key.startsWith('di_')) return deepinfra;
   throw new Error(
-    `Unrecognized LAT_LLM_KEY prefix. Supported: OpenAI (sk-...), Vercel AI Gateway (vck_...).`,
+    `Unrecognized LAT_LLM_KEY prefix. Supported: OpenAI (sk-...), Vercel AI Gateway (vck_...), DeepInfra (di_...).`,
   );
 }
