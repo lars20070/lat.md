@@ -99,7 +99,7 @@ export default function Home() {
               padding: 0,
               listStyle: 'none',
               fontSize: 14,
-              lineHeight: 1.6,
+              lineHeight: 1.45,
               color: '#555',
             }}
           >
@@ -149,7 +149,7 @@ export default function Home() {
               padding: 0,
               listStyle: 'none',
               fontSize: 14,
-              lineHeight: 1.4,
+              lineHeight: 1.45,
               color: '#555',
             }}
           >

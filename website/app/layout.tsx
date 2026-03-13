@@ -31,6 +31,7 @@ export default function RootLayout({
           body { line-height: 1.6; }
           a.foot { color: #555; text-decoration: none; border-bottom: 1px dotted #555; transition: color 0.2s, border-bottom-color 0.2s; }
           a.foot:hover { color: #aaa; border-bottom-color: #aaa; }
+          ul li { padding-left: 2ch; text-indent: -2ch; }
           ul li + li { margin-top: 1em; }
           .nosel { -webkit-user-select: none; user-select: none; }
           @media (max-width: 600px) { body { padding-top: 8vh !important; } }
