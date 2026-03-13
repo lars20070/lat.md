@@ -1,0 +1,403 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { createRequire } from 'node:module';
+import type { Section } from './lattice.js';
+import {
+  Parser,
+  Language,
+  type Node as SyntaxNode,
+  type Tree,
+} from 'web-tree-sitter';
+
+export type SourceSymbol = {
+  name: string;
+  kind:
+    | 'function'
+    | 'class'
+    | 'const'
+    | 'type'
+    | 'interface'
+    | 'method'
+    | 'variable';
+  parent?: string;
+  startLine: number;
+  endLine: number;
+  signature: string;
+};
+
+// Lazy singleton for the parser
+let parserReady: Promise<void> | null = null;
+let parserInstance: Parser | null = null;
+
+const languages = new Map<string, Language>();
+
+function wasmDir(): string {
+  const require = createRequire(import.meta.url);
+  const pkgPath = require.resolve('@repomix/tree-sitter-wasms/package.json');
+  return join(dirname(pkgPath), 'out');
+}
+
+async function ensureParser(): Promise<Parser> {
+  if (!parserReady) {
+    parserReady = Parser.init();
+  }
+  await parserReady;
+  if (!parserInstance) {
+    parserInstance = new Parser();
+  }
+  return parserInstance;
+}
+
+async function getLanguage(ext: string): Promise<Language | null> {
+  const grammarMap: Record<string, string> = {
+    '.ts': 'tree-sitter-typescript.wasm',
+    '.tsx': 'tree-sitter-tsx.wasm',
+    '.js': 'tree-sitter-javascript.wasm',
+    '.jsx': 'tree-sitter-javascript.wasm',
+    '.py': 'tree-sitter-python.wasm',
+  };
+  const wasmFile = grammarMap[ext];
+  if (!wasmFile) return null;
+
+  // Ensure WASM runtime is initialized before loading languages
+  await ensureParser();
+
+  if (!languages.has(wasmFile)) {
+    const wasmPath = join(wasmDir(), wasmFile);
+    const lang = await Language.load(wasmPath);
+    languages.set(wasmFile, lang);
+  }
+  return languages.get(wasmFile)!;
+}
+
+function extractName(node: SyntaxNode): string | null {
+  const nameNode = node.childForFieldName('name');
+  return nameNode ? nameNode.text : null;
+}
+
+function extractTsSymbols(tree: Tree): SourceSymbol[] {
+  const symbols: SourceSymbol[] = [];
+  const root = tree.rootNode;
+
+  for (let i = 0; i < root.childCount; i++) {
+    let node = root.child(i)!;
+
+    // Unwrap export_statement to get the inner declaration
+    const isExport = node.type === 'export_statement';
+    if (isExport) {
+      const inner = node.namedChildren.find(
+        (c) =>
+          c.type === 'function_declaration' ||
+          c.type === 'class_declaration' ||
+          c.type === 'lexical_declaration' ||
+          c.type === 'type_alias_declaration' ||
+          c.type === 'interface_declaration' ||
+          c.type === 'abstract_class_declaration',
+      );
+      if (inner) node = inner;
+    }
+
+    const startLine = node.startPosition.row + 1;
+    const endLine = node.endPosition.row + 1;
+
+    if (
+      node.type === 'function_declaration' ||
+      node.type === 'generator_function_declaration'
+    ) {
+      const name = extractName(node);
+      if (name) {
+        symbols.push({
+          name,
+          kind: 'function',
+          startLine,
+          endLine,
+          signature: firstLine(node.text),
+        });
+      }
+    } else if (
+      node.type === 'class_declaration' ||
+      node.type === 'abstract_class_declaration'
+    ) {
+      const name = extractName(node);
+      if (name) {
+        symbols.push({
+          name,
+          kind: 'class',
+          startLine,
+          endLine,
+          signature: firstLine(node.text),
+        });
+        // Extract methods
+        const body = node.childForFieldName('body');
+        if (body) {
+          extractClassMethods(body, name, symbols);
+        }
+      }
+    } else if (node.type === 'lexical_declaration') {
+      // const/let declarations
+      for (const decl of node.namedChildren) {
+        if (decl.type === 'variable_declarator') {
+          const name = extractName(decl);
+          if (name) {
+            symbols.push({
+              name,
+              kind: 'const',
+              startLine,
+              endLine,
+              signature: firstLine(node.text),
+            });
+          }
+        }
+      }
+    } else if (node.type === 'type_alias_declaration') {
+      const name = extractName(node);
+      if (name) {
+        symbols.push({
+          name,
+          kind: 'type',
+          startLine,
+          endLine,
+          signature: firstLine(node.text),
+        });
+      }
+    } else if (node.type === 'interface_declaration') {
+      const name = extractName(node);
+      if (name) {
+        symbols.push({
+          name,
+          kind: 'interface',
+          startLine,
+          endLine,
+          signature: firstLine(node.text),
+        });
+      }
+    }
+  }
+
+  return symbols;
+}
+
+function extractClassMethods(
+  body: SyntaxNode,
+  className: string,
+  symbols: SourceSymbol[],
+): void {
+  for (let i = 0; i < body.namedChildCount; i++) {
+    const member = body.namedChild(i)!;
+    if (
+      member.type === 'method_definition' ||
+      member.type === 'public_field_definition'
+    ) {
+      const name = extractName(member);
+      if (name) {
+        symbols.push({
+          name,
+          kind: 'method',
+          parent: className,
+          startLine: member.startPosition.row + 1,
+          endLine: member.endPosition.row + 1,
+          signature: firstLine(member.text),
+        });
+      }
+    }
+  }
+}
+
+function extractPySymbols(tree: Tree): SourceSymbol[] {
+  const symbols: SourceSymbol[] = [];
+  const root = tree.rootNode;
+
+  for (let i = 0; i < root.childCount; i++) {
+    const node = root.child(i)!;
+    const startLine = node.startPosition.row + 1;
+    const endLine = node.endPosition.row + 1;
+
+    if (node.type === 'function_definition') {
+      const name = extractName(node);
+      if (name) {
+        symbols.push({
+          name,
+          kind: 'function',
+          startLine,
+          endLine,
+          signature: firstLine(node.text),
+        });
+      }
+    } else if (node.type === 'class_definition') {
+      const name = extractName(node);
+      if (name) {
+        symbols.push({
+          name,
+          kind: 'class',
+          startLine,
+          endLine,
+          signature: firstLine(node.text),
+        });
+        // Extract methods
+        const body = node.childForFieldName('body');
+        if (body) {
+          for (let j = 0; j < body.namedChildCount; j++) {
+            const member = body.namedChild(j)!;
+            if (member.type === 'function_definition') {
+              const methodName = extractName(member);
+              if (methodName) {
+                symbols.push({
+                  name: methodName,
+                  kind: 'method',
+                  parent: name,
+                  startLine: member.startPosition.row + 1,
+                  endLine: member.endPosition.row + 1,
+                  signature: firstLine(member.text),
+                });
+              }
+            }
+          }
+        }
+      }
+    } else if (
+      node.type === 'expression_statement' &&
+      node.namedChildCount === 1 &&
+      node.namedChild(0)!.type === 'assignment'
+    ) {
+      // Top-level assignment: FOO = ...
+      const assign = node.namedChild(0)!;
+      const left = assign.childForFieldName('left');
+      if (left && left.type === 'identifier') {
+        symbols.push({
+          name: left.text,
+          kind: 'variable',
+          startLine,
+          endLine,
+          signature: firstLine(node.text),
+        });
+      }
+    }
+  }
+
+  return symbols;
+}
+
+function firstLine(text: string): string {
+  const nl = text.indexOf('\n');
+  return nl === -1 ? text : text.slice(0, nl);
+}
+
+export async function parseSourceSymbols(
+  filePath: string,
+  content: string,
+): Promise<SourceSymbol[]> {
+  const ext = filePath.match(/\.[^.]+$/)?.[0] ?? '';
+  const lang = await getLanguage(ext);
+  if (!lang) return [];
+
+  const p = await ensureParser();
+  p.setLanguage(lang);
+  const tree = p.parse(content);
+  if (!tree) return [];
+
+  if (ext === '.py') {
+    return extractPySymbols(tree);
+  }
+  return extractTsSymbols(tree);
+}
+
+/**
+ * Check whether a source file path (relative to projectRoot) has a given symbol.
+ * Used by lat check to validate source code wiki links lazily.
+ */
+export async function resolveSourceSymbol(
+  filePath: string,
+  symbolPath: string,
+  projectRoot: string,
+): Promise<{ found: boolean; symbols: SourceSymbol[]; error?: string }> {
+  const absPath = join(projectRoot, filePath);
+  let content: string;
+  try {
+    content = readFileSync(absPath, 'utf-8');
+  } catch {
+    return { found: false, symbols: [] };
+  }
+
+  let symbols: SourceSymbol[];
+  try {
+    symbols = await parseSourceSymbols(filePath, content);
+  } catch (err) {
+    return {
+      found: false,
+      symbols: [],
+      error: `failed to parse "${filePath}": ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+  const parts = symbolPath.split('#');
+
+  if (parts.length === 1) {
+    // Simple symbol: getConfigDir
+    const found = symbols.some((s) => s.name === parts[0] && !s.parent);
+    return { found, symbols };
+  }
+
+  if (parts.length === 2) {
+    // Nested symbol: MyClass#myMethod
+    const found = symbols.some(
+      (s) => s.name === parts[1] && s.parent === parts[0],
+    );
+    return { found, symbols };
+  }
+
+  return { found: false, symbols };
+}
+
+/**
+ * Convert source symbols to Section objects for uniform handling.
+ */
+export function sourceSymbolsToSections(
+  symbols: SourceSymbol[],
+  filePath: string,
+): Section[] {
+  const sections: Section[] = [];
+  const classMap = new Map<string, Section>();
+
+  for (const sym of symbols) {
+    if (sym.parent) continue; // Handle methods after their class
+
+    const section: Section = {
+      id: `${filePath}#${sym.name}`,
+      heading: sym.name,
+      depth: 1,
+      file: filePath,
+      filePath,
+      children: [],
+      startLine: sym.startLine,
+      endLine: sym.endLine,
+      body: sym.signature,
+    };
+    sections.push(section);
+
+    if (sym.kind === 'class') {
+      classMap.set(sym.name, section);
+    }
+  }
+
+  // Add methods as children
+  for (const sym of symbols) {
+    if (!sym.parent) continue;
+
+    const parentSection = classMap.get(sym.parent);
+    if (!parentSection) continue;
+
+    const section: Section = {
+      id: `${filePath}#${sym.parent}#${sym.name}`,
+      heading: sym.name,
+      depth: 2,
+      file: filePath,
+      filePath,
+      children: [],
+      startLine: sym.startLine,
+      endLine: sym.endLine,
+      body: sym.signature,
+    };
+    parentSection.children.push(section);
+  }
+
+  return sections;
+}

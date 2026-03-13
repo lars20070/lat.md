@@ -1,4 +1,4 @@
-import { relative } from 'node:path';
+import { join, relative } from 'node:path';
 import chalk from 'chalk';
 import type { Section, SectionMatch } from './lattice.js';
 
@@ -12,13 +12,10 @@ export function formatSectionId(id: string): string {
 
 export function formatSectionPreview(
   section: Section,
-  latticeDir: string,
+  projectRoot: string,
   opts?: { reason?: string },
 ): string {
-  const relPath = relative(
-    process.cwd(),
-    latticeDir + '/' + section.file + '.md',
-  );
+  const relPath = relative(process.cwd(), join(projectRoot, section.filePath));
 
   const kind = section.id.includes('#') ? 'Section' : 'File';
   const reasonSuffix = opts?.reason ? ' ' + chalk.dim(`(${opts.reason})`) : '';
@@ -42,14 +39,14 @@ export function formatSectionPreview(
 export function formatResultList(
   header: string,
   matches: SectionMatch[],
-  latticeDir: string,
+  projectRoot: string,
 ): string {
   const lines: string[] = ['', chalk.bold(header), ''];
 
   for (let i = 0; i < matches.length; i++) {
     if (i > 0) lines.push('');
     lines.push(
-      formatSectionPreview(matches[i].section, latticeDir, {
+      formatSectionPreview(matches[i].section, projectRoot, {
         reason: matches[i].reason,
       }),
     );

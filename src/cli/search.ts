@@ -83,7 +83,11 @@ export async function searchCmd(
       .map((s) => ({ section: s, reason: 'semantic match' }));
 
     console.log(
-      formatResultList(`Search results for "${query}":`, matched, ctx.latDir),
+      formatResultList(
+        `Search results for "${query}":`,
+        matched,
+        ctx.projectRoot,
+      ),
     );
   } finally {
     await closeDb(db);

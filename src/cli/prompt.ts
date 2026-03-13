@@ -1,4 +1,4 @@
-import { relative } from 'node:path';
+import { join, relative } from 'node:path';
 import {
   loadAllSections,
   findSections,
@@ -9,8 +9,8 @@ import type { CliContext } from './context.js';
 
 const WIKI_LINK_RE = /\[\[([^\]]+)\]\]/g;
 
-function formatLocation(section: Section, latDir: string): string {
-  const relPath = relative(process.cwd(), latDir + '/' + section.file + '.md');
+function formatLocation(section: Section, projectRoot: string): string {
+  const relPath = relative(process.cwd(), join(projectRoot, section.filePath));
   return `${relPath}:${section.startLine}-${section.endLine}`;
 }
 
@@ -63,7 +63,9 @@ export async function promptCmd(ctx: CliContext, text: string): Promise<void> {
   // Append context block as nested outliner
   output += '\n\n<lat-context>\n';
   for (const ref of resolved.values()) {
-    const isExact = ref.best.reason === 'exact match';
+    const isExact =
+      ref.best.reason === 'exact match' ||
+      ref.best.reason.startsWith('file stem expanded');
     const all = isExact ? [ref.best] : [ref.best, ...ref.alternatives];
 
     if (isExact) {
@@ -75,7 +77,7 @@ export async function promptCmd(ctx: CliContext, text: string): Promise<void> {
     for (const m of all) {
       const reason = isExact ? '' : ` (${m.reason})`;
       output += `  * [[${m.section.id}]]${reason}\n`;
-      output += `    * ${formatLocation(m.section, ctx.latDir)}\n`;
+      output += `    * ${formatLocation(m.section, ctx.projectRoot)}\n`;
       if (m.section.body) {
         output += `    * ${m.section.body}\n`;
       }

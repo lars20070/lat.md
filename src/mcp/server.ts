@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { relative } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import {
   findLatticeDir,
   loadAllSections,
@@ -17,10 +17,9 @@ import {
 import { scanCodeRefs } from '../code-refs.js';
 import { checkMd, checkCodeRefs, checkIndex } from '../cli/check.js';
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 
-function formatSection(s: Section, latDir: string): string {
-  const relPath = relative(process.cwd(), latDir + '/' + s.file + '.md');
+function formatSection(s: Section, projectRoot: string): string {
+  const relPath = relative(process.cwd(), join(projectRoot, s.filePath));
   const kind = s.id.includes('#') ? 'Section' : 'File';
   const lines = [
     `* ${kind}: [[${s.id}]]`,
@@ -37,13 +36,14 @@ function formatSection(s: Section, latDir: string): string {
 function formatMatches(
   header: string,
   matches: SectionMatch[],
-  latDir: string,
+  projectRoot: string,
 ): string {
   const lines = [header, ''];
   for (let i = 0; i < matches.length; i++) {
     if (i > 0) lines.push('');
     lines.push(
-      formatSection(matches[i].section, latDir) + ` (${matches[i].reason})`,
+      formatSection(matches[i].section, projectRoot) +
+        ` (${matches[i].reason})`,
     );
   }
   return lines.join('\n');
@@ -55,6 +55,7 @@ export async function startMcpServer(): Promise<void> {
     process.stderr.write('No lat.md directory found\n');
     process.exit(1);
   }
+  const projectRoot = dirname(latDir);
 
   const server = new McpServer({
     name: 'lat',
@@ -85,7 +86,7 @@ export async function startMcpServer(): Promise<void> {
             text: formatMatches(
               `Sections matching "${query}":`,
               matches,
-              latDir,
+              projectRoot,
             ),
           },
         ],
@@ -162,7 +163,7 @@ export async function startMcpServer(): Promise<void> {
               text: formatMatches(
                 `Search results for "${query}":`,
                 matched,
-                latDir,
+                projectRoot,
               ),
             },
           ],
@@ -230,7 +231,9 @@ export async function startMcpServer(): Promise<void> {
 
       output += '\n\n<lat-context>\n';
       for (const ref of resolved.values()) {
-        const isExact = ref.best.reason === 'exact match';
+        const isExact =
+          ref.best.reason === 'exact match' ||
+          ref.best.reason.startsWith('file stem expanded');
         const all = isExact ? [ref.best] : [ref.best, ...ref.alternatives];
 
         if (isExact) {
@@ -243,7 +246,7 @@ export async function startMcpServer(): Promise<void> {
           const reason = isExact ? '' : ` (${m.reason})`;
           const relPath = relative(
             process.cwd(),
-            latDir + '/' + m.section.file + '.md',
+            join(projectRoot, m.section.filePath),
           );
           output += `  * [[${m.section.id}]]${reason}\n`;
           output += `    * ${relPath}:${m.section.startLine}-${m.section.endLine}\n`;
@@ -348,7 +351,7 @@ export async function startMcpServer(): Promise<void> {
         const matchingFromSections = new Set<string>();
         for (const file of files) {
           const content = await readFile(file, 'utf-8');
-          const fileRefs = extractRefs(file, content, latDir);
+          const fileRefs = extractRefs(file, content, projectRoot);
           for (const ref of fileRefs) {
             const { resolved: refResolved } = resolveRef(
               ref.target,
@@ -372,7 +375,6 @@ export async function startMcpServer(): Promise<void> {
       }
 
       if (scope === 'code' || scope === 'md+code') {
-        const projectRoot = join(latDir, '..');
         const { refs: codeRefs } = await scanCodeRefs(projectRoot);
         for (const ref of codeRefs) {
           const { resolved: codeResolved } = resolveRef(
@@ -400,7 +402,11 @@ export async function startMcpServer(): Promise<void> {
       const parts: string[] = [];
       if (mdMatches.length > 0) {
         parts.push(
-          formatMatches(`References to "${exactMatch.id}":`, mdMatches, latDir),
+          formatMatches(
+            `References to "${exactMatch.id}":`,
+            mdMatches,
+            projectRoot,
+          ),
         );
       }
       if (codeLines.length > 0) {

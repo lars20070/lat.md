@@ -12,6 +12,7 @@ export type Section = {
   heading: string;
   depth: number;
   file: string;
+  filePath: string;
   children: Section[];
   startLine: number;
   endLine: number;
@@ -57,6 +58,11 @@ export function findLatticeDir(from?: string): string | null {
   }
 }
 
+export function findProjectRoot(from?: string): string | null {
+  const latDir = findLatticeDir(from);
+  return latDir ? dirname(latDir) : null;
+}
+
 export async function listLatticeFiles(latticeDir: string): Promise<string[]> {
   const entries = await walkEntries(latticeDir);
   return entries
@@ -93,12 +99,15 @@ function lastLine(content: string): number {
 export function parseSections(
   filePath: string,
   content: string,
-  latticeDir?: string,
+  projectRoot?: string,
 ): Section[] {
   const tree = parse(stripFrontmatter(content));
-  const file = latticeDir
-    ? relative(latticeDir, filePath).replace(/\.md$/, '')
+  const file = projectRoot
+    ? relative(projectRoot, filePath).replace(/\.md$/, '')
     : basename(filePath, '.md');
+  const sectionFilePath = projectRoot
+    ? relative(projectRoot, filePath)
+    : basename(filePath);
   const roots: Section[] = [];
   const stack: Section[] = [];
   const flat: Section[] = [];
@@ -121,6 +130,7 @@ export function parseSections(
       heading,
       depth,
       file,
+      filePath: sectionFilePath,
       children: [],
       startLine,
       endLine: 0,
@@ -171,11 +181,12 @@ export function parseSections(
 }
 
 export async function loadAllSections(latticeDir: string): Promise<Section[]> {
+  const projectRoot = dirname(latticeDir);
   const files = await listLatticeFiles(latticeDir);
   const all: Section[] = [];
   for (const file of files) {
     const content = await readFile(file, 'utf-8');
-    all.push(...parseSections(file, content, latticeDir));
+    all.push(...parseSections(file, content, projectRoot));
   }
   return all;
 }
@@ -223,17 +234,25 @@ function tailSegments(id: string): string[] {
 }
 
 /**
- * Build an index mapping bare file stems to their full vault-relative paths.
- * Used by resolveRef to allow short references when a stem is unambiguous.
+ * Build an index mapping path suffixes to their full vault-relative paths.
+ * Used by resolveRef to allow short references when a suffix is unambiguous.
+ *
+ * For a file like `lat.md/guides/setup`, indexes both `guides/setup` and `setup`.
+ * This ensures backward-compatible short refs after the vault root moved to the
+ * project root (so section IDs now include the `lat.md/` prefix).
  */
 export function buildFileIndex(sections: Section[]): Map<string, string[]> {
   const flat = flattenSections(sections);
   const index = new Map<string, Set<string>>();
   for (const s of flat) {
-    const stem = s.file.includes('/') ? s.file.split('/').pop()! : null;
-    if (stem) {
-      if (!index.has(stem)) index.set(stem, new Set());
-      index.get(stem)!.add(s.file);
+    const parts = s.file.split('/');
+    // Index all trailing path suffixes (excluding the full path itself,
+    // which is handled by exact match). Keys are lowercase for
+    // case-insensitive lookup.
+    for (let i = 1; i < parts.length; i++) {
+      const suffix = parts.slice(i).join('/').toLowerCase();
+      if (!index.has(suffix)) index.set(suffix, new Set());
+      index.get(suffix)!.add(s.file);
     }
   }
   const result = new Map<string, string[]>();
@@ -275,8 +294,10 @@ export function resolveRef(
   const rest = hashIdx === -1 ? '' : target.slice(hashIdx);
 
   // Try resolving the file part: either it's a full path or a bare stem
-  const filePaths = fileIndex.has(filePart)
-    ? fileIndex.get(filePart)!
+  // File index keys are lowercase for case-insensitive lookup.
+  const lcFilePart = filePart.toLowerCase();
+  const filePaths = fileIndex.has(lcFilePart)
+    ? fileIndex.get(lcFilePart)!
     : [filePart];
 
   if (filePaths.length === 1) {
@@ -356,31 +377,50 @@ export function findSections(
   }));
   if (exactMatches.length > 0 && isFullPath) return exactMatches;
 
+  // Build file index early — used by both tier 1a and 1b
+  const fileIndex = buildFileIndex(sections);
+
   // Tier 1a: bare name matches file — return root sections of that file
+  // Also checks via file index (e.g. "dev-process" → "lat.md/dev-process")
   if (!isFullPath && exactMatches.length === 0) {
-    const fileRoots = flat.filter(
-      (s) =>
-        s.file.toLowerCase() === q && !s.id.includes('#', s.file.length + 1),
-    );
-    if (fileRoots.length > 0) {
-      return fileRoots.map((s) => ({
-        section: s,
-        reason: 'exact match',
-      }));
+    const matchFiles = new Set<string>();
+    // Direct match
+    for (const s of flat) {
+      if (
+        s.file.toLowerCase() === q &&
+        !s.id.includes('#', s.file.length + 1)
+      ) {
+        matchFiles.add(s.file);
+      }
+    }
+    // File index expansion (keys are lowercase)
+    const indexPaths = fileIndex.get(q) ?? [];
+    for (const p of indexPaths) {
+      matchFiles.add(p);
+    }
+    if (matchFiles.size > 0) {
+      const fileRoots = flat.filter(
+        (s) => matchFiles.has(s.file) && !s.id.includes('#', s.file.length + 1),
+      );
+      if (fileRoots.length > 0) {
+        return fileRoots.map((s) => ({
+          section: s,
+          reason: 'exact match',
+        }));
+      }
     }
   }
 
   // Tier 1b: file stem expansion
   // For bare names: "locate" → matches root section of "tests/locate.md"
   // For paths with #: "setup#Install" → expands to "guides/setup#Install"
-  const fileIndex = buildFileIndex(sections);
   const stemMatches: SectionMatch[] = [];
   if (isFullPath) {
     // Expand file stem in the file part of the query
     const hashIdx = normalized.indexOf('#');
     const filePart = normalized.slice(0, hashIdx);
     const rest = normalized.slice(hashIdx);
-    const stemPaths = fileIndex.get(filePart) ?? [];
+    const stemPaths = fileIndex.get(filePart.toLowerCase()) ?? [];
     // Also try filePart as a direct file path (for root-level files not in index)
     const allPaths =
       stemPaths.length > 0 ? stemPaths : filePart ? [filePart] : [];
@@ -423,8 +463,8 @@ export function findSections(
     }
     if (stemMatches.length > 0) return [...exactMatches, ...stemMatches];
   } else {
-    // Bare name: match root sections of files via stem index
-    const paths = fileIndex.get(normalized) ?? [];
+    // Bare name: match root sections of files via stem index (keys lowercase)
+    const paths = fileIndex.get(q) ?? [];
     for (const p of paths) {
       for (const s of flat) {
         if (exact.includes(s)) continue;
@@ -455,21 +495,34 @@ export function findSections(
 
   // Tier 2b: subsequence match — query segments are a subsequence of section id segments
   // e.g. "Markdown#Resolution Rules" matches "markdown#Wiki Links#Resolution Rules"
+  // Also tries expanding the file part via the file index for short refs.
   const seenSub = new Set([...seen, ...subsection.map((m) => m.section.id)]);
   const qParts = q.split('#');
+  // Build query variants: original + file-index-expanded forms
+  const qVariants: string[][] = [qParts];
+  if (qParts.length >= 2) {
+    const expanded = fileIndex.get(qParts[0]);
+    if (expanded) {
+      for (const exp of expanded) {
+        qVariants.push([exp.toLowerCase(), ...qParts.slice(1)]);
+      }
+    }
+  }
   const subsequence: SectionMatch[] =
     qParts.length >= 2
       ? flat
           .filter((s) => {
             if (seenSub.has(s.id)) return false;
             const sParts = s.id.toLowerCase().split('#');
-            if (sParts.length <= qParts.length) return false;
-            let qi = 0;
-            for (const sp of sParts) {
-              if (sp === qParts[qi]) qi++;
-              if (qi === qParts.length) return true;
-            }
-            return false;
+            return qVariants.some((variant) => {
+              if (sParts.length <= variant.length) return false;
+              let qi = 0;
+              for (const sp of sParts) {
+                if (sp === variant[qi]) qi++;
+                if (qi === variant.length) return true;
+              }
+              return false;
+            });
           })
           .map((s) => {
             const skipped = s.id.split('#').length - qParts.length;
@@ -566,11 +619,11 @@ export function findSections(
 export function extractRefs(
   filePath: string,
   content: string,
-  latticeDir?: string,
+  projectRoot?: string,
 ): Ref[] {
   const tree = parse(stripFrontmatter(content));
-  const file = latticeDir
-    ? relative(latticeDir, filePath).replace(/\.md$/, '')
+  const file = projectRoot
+    ? relative(projectRoot, filePath).replace(/\.md$/, '')
     : basename(filePath, '.md');
   const refs: Ref[] = [];
 

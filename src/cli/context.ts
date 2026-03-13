@@ -1,8 +1,10 @@
+import { dirname } from 'node:path';
 import chalk, { type ChalkInstance } from 'chalk';
 import { findLatticeDir } from '../lattice.js';
 
 export type CliContext = {
   latDir: string;
+  projectRoot: string;
   color: boolean;
   chalk: ChalkInstance;
 };
@@ -23,5 +25,6 @@ export function resolveContext(opts: {
     process.exit(1);
   }
 
-  return { latDir, color, chalk };
+  const projectRoot = dirname(latDir);
+  return { latDir, projectRoot, color, chalk };
 }
