@@ -1,6 +1,6 @@
 # Parser
 
-Markdown parsing built on unified/remark v11. Entry point: `src/parser.ts`.
+Markdown parsing built on unified/remark v11. Entry point: `src/parser.ts`. Parse → render fidelity is verified by [[tests/roundtrip]].
 
 ## Wiki Links
 
