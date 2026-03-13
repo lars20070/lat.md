@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { Client } from '@libsql/client';
 import { loadAllSections, flattenSections, type Section } from '../lattice.js';
 import { embed } from './embeddings.js';
@@ -12,9 +12,9 @@ function hashContent(text: string): string {
 
 async function sectionContent(
   section: Section,
-  latDir: string,
+  projectRoot: string,
 ): Promise<string> {
-  const filePath = join(latDir, section.file + '.md');
+  const filePath = join(projectRoot, section.filePath);
   const content = await readFile(filePath, 'utf-8');
   const lines = content.split('\n');
   return lines.slice(section.startLine - 1, section.endLine).join('\n');
@@ -33,6 +33,7 @@ export async function indexSections(
   provider: EmbeddingProvider,
   key: string,
 ): Promise<IndexStats> {
+  const projectRoot = dirname(latDir);
   const allSections = await loadAllSections(latDir);
   const flat = flattenSections(allSections);
 
@@ -42,7 +43,7 @@ export async function indexSections(
     { section: Section; content: string; hash: string }
   >();
   for (const s of flat) {
-    const text = await sectionContent(s, latDir);
+    const text = await sectionContent(s, projectRoot);
     current.set(s.id, { section: s, content: text, hash: hashContent(text) });
   }
 

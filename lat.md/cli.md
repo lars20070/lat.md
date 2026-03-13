@@ -1,6 +1,6 @@
 # CLI
 
-The `lat` command line tool. Entry point: `src/cli/index.ts`.
+The `lat` command line tool. Entry point: [[src/cli/index.ts]].
 
 ## locate
 
@@ -16,7 +16,7 @@ Outputs a [[cli#Section Preview]] for each match.
 
 Usage: `lat locate <query>`
 
-Implementation: `src/cli/locate.ts`, matching logic in `findSections()` in `src/lattice.ts`
+Implementation: [[src/cli/locate.ts]], matching logic in [[src/lattice.ts#findSections]]
 
 ## refs
 
@@ -30,7 +30,7 @@ Usage: `lat refs <query> [--scope=md|code|md+code]`
 - `code` — scan source files for `@lat: [[...]]` comments matching the query
 - `md+code` — both
 
-Implementation: `src/cli/refs.ts`
+Implementation: [[src/cli/refs.ts]]
 
 ## check
 
@@ -38,7 +38,7 @@ Validation command group. Runs all checks when invoked without a subcommand.
 
 Usage: `lat check [md|code-refs|index]`
 
-Implementation: `src/cli/check.ts`
+Implementation: [[src/cli/check.ts]]
 
 ### md
 
@@ -52,7 +52,7 @@ Two validations:
 
 ### index
 
-Validate directory index files. Every directory inside `lat.md/` (including the root) must have an index file named after the directory (e.g. `lat.md/lat.md` for the root, `lat.md/api/api.md` for a subdirectory). Each index file must contain a bullet list covering every visible file and subdirectory with a one-sentence description, using the format `- **name** — description`.
+Validate directory index files. Every directory inside `lat.md/` (including the root) must have an index file named after the directory (e.g. `lat.md/lat.md` for the root, `lat.md/api/api.md` for a subdirectory). Each index file must contain a bullet list covering every visible file and subdirectory with a one-sentence description, using wiki links: `- [[name]] — description`. File entries omit the `.md` extension (e.g. `[[cli]]` not `[[cli.md]]`).
 
 Three checks:
 1. **Missing index file** — errors with a ready-to-copy bullet list snippet
@@ -73,7 +73,7 @@ For each `[[ref]]` in the input, uses `findSections()` directly (no `resolveRef`
 
 Output replaces `[[ref]]` with `[[resolved-id]]` inline and appends a `<lat-context>` block as a nested outliner. For exact matches: `is referring to:`. For non-exact: `might be referring to either of the following:` with all candidates, match reasons, locations, and body text.
 
-Implementation: `src/cli/prompt.ts`
+Implementation: [[src/cli/prompt.ts]]
 
 ## gen
 
@@ -87,7 +87,7 @@ Supported targets:
 
 Both targets output the same template from `templates/AGENTS.md`. The output is written to stdout so it can be redirected: `lat gen agents.md > AGENTS.md`.
 
-Implementation: `src/cli/gen.ts`
+Implementation: [[src/cli/gen.ts]]
 
 ## init
 
@@ -124,7 +124,7 @@ Steps:
 
 All setup steps are idempotent — existing configuration is detected and skipped.
 
-Implementation: `src/cli/init.ts`
+Implementation: [[src/cli/init.ts]]
 
 ## Configuration File
 
@@ -135,7 +135,7 @@ Currently supports one field:
 
 Key resolution order: `LAT_LLM_KEY` > `LAT_LLM_KEY_FILE` > `LAT_LLM_KEY_HELPER` > config file `llm_key`. This applies everywhere: `lat search`, `lat check`, and the MCP `lat_search` tool.
 
-Implementation: `src/config.ts`
+Implementation: [[src/config.ts]]
 
 ## mcp
 
@@ -153,7 +153,7 @@ Clients invoke this as `lat mcp`. The `lat init` wizard registers the MCP server
 
 Uses `@modelcontextprotocol/sdk` with stdio transport. Resolves `lat.md/` from cwd. Returns plain text (no color).
 
-Implementation: `src/mcp/server.ts`
+Implementation: [[src/mcp/server.ts]]
 
 ## search
 
@@ -163,11 +163,11 @@ Usage: `lat search [query] [--limit=5] [--reindex]`
 
 Query is optional — `lat search --reindex` re-indexes without searching.
 
-Implementation: `src/cli/search.ts`, core logic in `src/search/`
+Implementation: [[src/cli/search.ts]], core logic in `src/search/`
 
 ### Provider Detection
 
-Requires an LLM key resolved by `getLlmKey()` (`src/config.ts`) in priority order:
+Requires an LLM key resolved by [[src/config.ts#getLlmKey]] in priority order:
 
 1. `LAT_LLM_KEY` env var — direct value
 2. `LAT_LLM_KEY_FILE` env var — path to a file containing the key (read and trimmed)
@@ -181,13 +181,13 @@ Provider is auto-detected from the resolved key prefix:
 - `sk-ant-...` — Anthropic (not supported, errors with guidance)
 - `REPLAY_LAT_LLM_KEY::<url>` — test-only replay server for offline testing
 
-Implementation: `src/search/provider.ts`, `src/config.ts`
+Implementation: [[src/search/provider.ts]], [[src/config.ts]]
 
 ### Embeddings
 
 Direct `fetch()` calls to the provider's OpenAI-compatible `/v1/embeddings` endpoint. No LangChain or other framework — keeps the dependency tree minimal. Batches up to 2048 texts per request.
 
-Implementation: `src/search/embeddings.ts`
+Implementation: [[src/search/embeddings.ts]]
 
 ### Storage
 
@@ -197,7 +197,7 @@ Single `sections` table holds metadata, content, content hash, and the embedding
 
 The database is stored at `lat.md/.cache/vectors.db` and should not be committed (included in `.gitignore` template).
 
-Implementation: `src/search/db.ts`
+Implementation: [[src/search/db.ts]]
 
 ### Indexing
 
@@ -211,13 +211,13 @@ Content freshness is tracked via SHA-256 hashes. On each run:
 
 On first run, automatically indexes all sections. The `--reindex` flag forces a full rebuild.
 
-Implementation: `src/search/index.ts`
+Implementation: [[src/search/index.ts]]
 
 ### Vector Search
 
 Embeds the user's query via the same provider, then runs a `vector_top_k()` KNN query joined back to the sections table.
 
-Implementation: `src/search/search.ts`
+Implementation: [[src/search/search.ts]]
 
 ## Section Preview
 
@@ -231,4 +231,4 @@ Shared output format used by [[cli#locate]], [[cli#refs]], and [[cli#search]]. E
 
 Commands that return multiple results use `formatResultList()` which adds a bold header and consistent spacing.
 
-Implementation: `src/format.ts` — exports `formatSectionId`, `formatSectionPreview`, and `formatResultList`
+Implementation: [[src/format.ts]] — exports [[src/format.ts#formatSectionId]], [[src/format.ts#formatSectionPreview]], and [[src/format.ts#formatResultList]]

@@ -1,5 +1,4 @@
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import {
   listLatticeFiles,
   loadAllSections,
@@ -68,7 +67,7 @@ export async function refsCmd(
     const matchingFromSections = new Set<string>();
     for (const file of files) {
       const content = await readFile(file, 'utf-8');
-      const fileRefs = extractRefs(file, content, ctx.latDir);
+      const fileRefs = extractRefs(file, content, ctx.projectRoot);
       for (const ref of fileRefs) {
         const { resolved: refResolved } = resolveRef(
           ref.target,
@@ -92,8 +91,7 @@ export async function refsCmd(
   }
 
   if (scope === 'code' || scope === 'md+code') {
-    const projectRoot = join(ctx.latDir, '..');
-    const { refs: codeRefs } = await scanCodeRefs(projectRoot);
+    const { refs: codeRefs } = await scanCodeRefs(ctx.projectRoot);
     for (const ref of codeRefs) {
       const { resolved: codeResolved } = resolveRef(
         ref.target,
@@ -116,7 +114,7 @@ export async function refsCmd(
       formatResultList(
         `References to "${exactMatch.id}":`,
         mdMatches,
-        ctx.latDir,
+        ctx.projectRoot,
       ),
     );
   }

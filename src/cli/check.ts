@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
-import { basename, extname, join, relative } from 'node:path';
+import { existsSync } from 'node:fs';
+import { basename, dirname, extname, join, relative } from 'node:path';
 import {
   listLatticeFiles,
   loadAllSections,
@@ -73,7 +74,63 @@ function countByExt(paths: string[]): FileStats {
   return stats;
 }
 
+/** Source file extensions recognized for code wiki links. */
+const SOURCE_EXTS = new Set(['.ts', '.tsx', '.js', '.jsx', '.py']);
+
+function isSourcePath(target: string): boolean {
+  const hashIdx = target.indexOf('#');
+  const filePart = hashIdx === -1 ? target : target.slice(0, hashIdx);
+  const ext = extname(filePart);
+  return SOURCE_EXTS.has(ext);
+}
+
+/**
+ * Try resolving a wiki link target as a source code reference.
+ * Returns null if the reference is valid, or an error message string.
+ */
+async function tryResolveSourceRef(
+  target: string,
+  projectRoot: string,
+): Promise<string | null> {
+  if (!isSourcePath(target)) {
+    return `broken link [[${target}]] — no matching section found`;
+  }
+
+  const hashIdx = target.indexOf('#');
+  const filePart = hashIdx === -1 ? target : target.slice(0, hashIdx);
+  const symbolPart = hashIdx === -1 ? '' : target.slice(hashIdx + 1);
+
+  const absPath = join(projectRoot, filePart);
+  if (!existsSync(absPath)) {
+    return `broken link [[${target}]] — file "${filePart}" not found`;
+  }
+
+  if (!symbolPart) {
+    // File-only link with no symbol — valid as long as file exists
+    return null;
+  }
+
+  try {
+    const { resolveSourceSymbol } = await import('../source-parser.js');
+    const { found, error } = await resolveSourceSymbol(
+      filePart,
+      symbolPart,
+      projectRoot,
+    );
+    if (error) {
+      return `broken link [[${target}]] — ${error}`;
+    }
+    if (!found) {
+      return `broken link [[${target}]] — symbol "${symbolPart}" not found in "${filePart}"`;
+    }
+    return null;
+  } catch (err) {
+    return `broken link [[${target}]] — failed to parse "${filePart}": ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
+
 export async function checkMd(latticeDir: string): Promise<CheckResult> {
+  const projectRoot = dirname(latticeDir);
   const files = await listLatticeFiles(latticeDir);
   const allSections = await loadAllSections(latticeDir);
   const flat = flattenSections(allSections);
@@ -84,7 +141,7 @@ export async function checkMd(latticeDir: string): Promise<CheckResult> {
 
   for (const file of files) {
     const content = await readFile(file, 'utf-8');
-    const refs = extractRefs(file, content, latticeDir);
+    const refs = extractRefs(file, content, projectRoot);
     const relPath = relative(process.cwd(), file);
 
     for (const ref of refs) {
@@ -101,12 +158,16 @@ export async function checkMd(latticeDir: string): Promise<CheckResult> {
           message: ambiguousMessage(ref.target, ambiguous, suggested),
         });
       } else if (!sectionIds.has(resolved.toLowerCase())) {
-        errors.push({
-          file: relPath,
-          line: ref.line,
-          target: ref.target,
-          message: `broken link [[${ref.target}]] — no matching section found`,
-        });
+        // Try resolving as a source code reference (e.g. [[src/foo.ts#bar]])
+        const sourceErr = await tryResolveSourceRef(ref.target, projectRoot);
+        if (sourceErr !== null) {
+          errors.push({
+            file: relPath,
+            line: ref.line,
+            target: ref.target,
+            message: sourceErr,
+          });
+        }
       }
     }
   }
@@ -115,7 +176,7 @@ export async function checkMd(latticeDir: string): Promise<CheckResult> {
 }
 
 export async function checkCodeRefs(latticeDir: string): Promise<CheckResult> {
-  const projectRoot = join(latticeDir, '..');
+  const projectRoot = dirname(latticeDir);
   const allSections = await loadAllSections(latticeDir);
   const flat = flattenSections(allSections);
   const sectionIds = new Set(flat.map((s) => s.id.toLowerCase()));
@@ -155,7 +216,7 @@ export async function checkCodeRefs(latticeDir: string): Promise<CheckResult> {
     const fm = parseFrontmatter(content);
     if (!fm.requireCodeMention) continue;
 
-    const sections = parseSections(file, content, latticeDir);
+    const sections = parseSections(file, content, projectRoot);
     const fileSections = flattenSections(sections);
     const leafSections = fileSections.filter((s) => s.children.length === 0);
     const relPath = relative(process.cwd(), file);
@@ -188,10 +249,10 @@ function immediateEntries(walkedPaths: string[]): string[] {
   return [...entries].sort();
 }
 
-/** Parse bullet items from an index file. Matches `- **name** — description` */
+/** Parse bullet items from an index file. Matches `- [[name]] — description` */
 function parseIndexEntries(content: string): Set<string> {
   const names = new Set<string>();
-  const re = /^- \*\*(.+?)\*\*/gm;
+  const re = /^- \[\[([^\]]+?)(?:\|[^\]]+)?\]\]/gm;
   let match;
   while ((match = re.exec(content)) !== null) {
     names.add(match[1]);
@@ -199,9 +260,17 @@ function parseIndexEntries(content: string): Set<string> {
   return names;
 }
 
+/**
+ * Convert a filesystem entry name to its wiki link stem.
+ * Strips `.md` extension from files; directories stay as-is.
+ */
+function entryToStem(name: string): string {
+  return name.endsWith('.md') ? name.slice(0, -3) : name;
+}
+
 /** Generate a bullet-list snippet for the given entry names. */
 function indexSnippet(entries: string[]): string {
-  return entries.map((e) => `- **${e}** — <describe>`).join('\n');
+  return entries.map((e) => `- [[${entryToStem(e)}]] — <describe>`).join('\n');
 }
 
 export type IndexError = {
@@ -256,13 +325,17 @@ export async function checkIndex(latticeDir: string): Promise<IndexError[]> {
       continue;
     }
 
-    // Parse existing entries and validate
+    // Parse existing entries and validate.
+    // Listed entries are wiki link stems (no .md extension).
+    // Children are filesystem names (with .md for files, bare for dirs).
     const listed = parseIndexEntries(content);
+    const childStems = new Set(children.map(entryToStem));
+    const stemToChild = new Map(children.map((c) => [entryToStem(c), c]));
     const relDir = dir === '' ? basename(latticeDir) + '/' : dir + '/';
     const missing: string[] = [];
 
     for (const child of children) {
-      if (!listed.has(child)) {
+      if (!listed.has(entryToStem(child))) {
         missing.push(child);
       }
     }
@@ -275,11 +348,12 @@ export async function checkIndex(latticeDir: string): Promise<IndexError[]> {
       });
     }
 
+    const indexStem = entryToStem(indexFileName);
     for (const name of listed) {
-      if (!children.includes(name) && name !== indexFileName) {
+      if (!childStems.has(name) && name !== indexStem) {
         errors.push({
           dir: relDir,
-          message: `"${indexRelPath}" lists "${name}" but it does not exist`,
+          message: `"${indexRelPath}" lists "[[${name}]]" but it does not exist`,
         });
       }
     }

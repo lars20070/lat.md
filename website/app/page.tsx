@@ -9,7 +9,35 @@ const logo = `
 `.trimStart()
 
 function Cmd({ children }: { children: React.ReactNode }) {
-  return <span style={{ color: '#aaa' }}>{children}</span>
+  return (
+    <span
+      style={{
+        color: '#aaa',
+        background: '#222',
+        borderRadius: '4px',
+        padding: '1px 5px',
+        fontSize: '0.9em',
+      }}
+    >
+      {children}
+    </span>
+  )
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        color: '#bbb',
+        fontSize: 12,
+        textTransform: 'uppercase',
+        letterSpacing: '0.15em',
+        marginBottom: '1.5vh',
+      }}
+    >
+      {children}
+    </div>
+  )
 }
 
 const mono =
@@ -39,6 +67,7 @@ export default function Home() {
           lineHeight: 1.2,
           letterSpacing: '0.05em',
           margin: 0,
+          color: '#ddd',
         }}
       >
         {logo}
@@ -59,64 +88,88 @@ export default function Home() {
         A knowledge graph for your codebase, written in markdown.
       </p>
 
-      {/* Install + Features */}
+      {/* Goals + Install + Key Ideas */}
       <div style={{ marginTop: '2vh' }}>
 
-      {/* Install */}
-      <div>
-        <code
-          style={{
-            display: 'block',
-            background: '#111',
-            border: '1px solid #222',
-            borderRadius: '6px',
-            padding: '14px 48px 14px 16px',
-            fontSize: 15,
-            color: '#aaa',
-            boxSizing: 'border-box',
-          }}
-        >
-          <span className="nosel" style={{ color: '#555' }}>$ </span>
-          npm i -g lat.md
-        </code>
-        <div
-          style={{
-            color: '#444',
-            fontSize: 13,
-            marginTop: '10px',
-          }}
-        >
-          then run <span style={{ color: '#aaa' }}>lat init</span> in your project, your agent will know what to do
-        </div>
-      </div>
-
-      {/* Features */}
-      <ul
-        style={{
-          margin: 0,
-          padding: 0,
-          listStyle: 'none',
-          marginTop: '6vh',
-          fontSize: 14,
-          lineHeight: 1.4,
-          color: '#555',
-        }}
-      >
-        <li>* Plain markdown: readable by humans, parseable by agents</li>
-        <li>* Wiki links connect concepts into a navigable graph</li>
-        <li>* <Cmd>// @lat:</Cmd> and <Cmd># @lat:</Cmd> comments tie source code to specs</li>
-        <li>* <Cmd>lat check</Cmd> ensures nothing drifts out of sync</li>
-        <li>* <Cmd>lat search</Cmd> for semantic vector search across all sections</li>
-        <li style={{ marginTop: '1em' }}>
-          <span style={{ color: '#555' }}>Read the </span>
-          <a
-            className="foot"
-            href="https://github.com/1st1/lat.md#readme"
+        {/* Goals */}
+        <div>
+          <SectionLabel>Goals</SectionLabel>
+          <ul
+            style={{
+              margin: 0,
+              padding: 0,
+              listStyle: 'none',
+              fontSize: 14,
+              lineHeight: 1.45,
+              color: '#888',
+            }}
           >
-            README →
-          </a>
-        </li>
-      </ul>
+            <li>* Knowledge base (spec) that evolves in sync with your codebase</li>
+            <li>* Make agents understand big ideas and key business logic</li>
+            <li>* Ensure corner cases have proper high-level tests that matter</li>
+            <li>* Start reviewing agent diffs: focus on knowledge, not code</li>
+            <li>* Speed up coding by saving agents endless grepping</li>
+          </ul>
+        </div>
+
+        {/* Install */}
+        <div style={{ marginTop: '5vh' }}>
+          <SectionLabel>Install</SectionLabel>
+          <code
+            style={{
+              display: 'block',
+              background: '#151515',
+              border: '1px solid #444',
+              borderRadius: '6px',
+              padding: '14px 48px 14px 16px',
+              fontSize: 14,
+              color: '#ddd',
+              boxSizing: 'border-box',
+            }}
+          >
+            <span className="nosel" style={{ color: '#888' }}>$ </span>
+            npm i -g lat.md
+          </code>
+          <div
+            style={{
+              color: '#777',
+              fontSize: 14,
+              marginTop: '10px',
+            }}
+          >
+            then run <Cmd><span style={{ color: '#ccc' }}>lat init</span></Cmd> in your project
+          </div>
+        </div>
+
+        {/* Key Ideas */}
+        <div style={{ marginTop: '5vh' }}>
+          <SectionLabel>Key Ideas</SectionLabel>
+          <ul
+            style={{
+              margin: 0,
+              padding: 0,
+              listStyle: 'none',
+              fontSize: 14,
+              lineHeight: 1.45,
+              color: '#888',
+            }}
+          >
+            <li>* Plain markdown: readable by humans, parseable by agents</li>
+            <li>* Wiki links connect concepts into a navigable graph</li>
+            <li>* <Cmd>// @lat:</Cmd> and <Cmd># @lat:</Cmd> comments tie source code to specs</li>
+            <li>* <Cmd>lat check</Cmd> ensures nothing drifts out of sync</li>
+            <li>* <Cmd>lat search</Cmd> for semantic vector search across all sections</li>
+            <li style={{ marginTop: '1em' }}>
+              <span style={{ color: '#888' }}>Read the </span>
+              <a
+                className="foot"
+                href="https://github.com/1st1/lat.md#readme"
+              >
+                README →
+              </a>
+            </li>
+          </ul>
+        </div>
       </div>
 
       {/* Links */}
@@ -128,12 +181,10 @@ export default function Home() {
           fontSize: 13,
         }}
       >
-        <span style={{ color: '#444' }}>Made by</span>
         <a className="foot" href="https://x.com/1st1">@1st1</a>
-        <span style={{ color: '#333' }}>|</span>
-        <span style={{ color: '#444' }}>open source on</span>
+        <span style={{ color: '#666' }}>|</span>
         <a className="foot" href="https://github.com/1st1/lat.md">GitHub</a>
-        <span style={{ color: '#333' }}>|</span>
+        <span style={{ color: '#666' }}>|</span>
         <a className="foot" href="https://www.npmjs.com/package/lat.md">npm</a>
       </div>
     </div>

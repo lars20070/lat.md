@@ -17,6 +17,10 @@ export async function locateCmd(ctx: CliContext, query: string): Promise<void> {
   }
 
   console.log(
-    formatResultList(`Sections matching "${stripped}":`, matches, ctx.latDir),
+    formatResultList(
+      `Sections matching "${stripped}":`,
+      matches,
+      ctx.projectRoot,
+    ),
   );
 }

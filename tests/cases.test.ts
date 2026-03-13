@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { execSync } from 'child_process';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   findLatticeDir,
   listLatticeFiles,
@@ -40,13 +40,13 @@ describe('basic-project', () => {
     const flat = flattenSections(sections);
     const ids = flat.map((s) => s.id);
 
-    expect(ids).toContain('dev-process');
-    expect(ids).toContain('dev-process#Testing');
-    expect(ids).toContain('dev-process#Testing#Running Tests');
-    expect(ids).toContain('dev-process#Formatting');
-    expect(ids).toContain('notes');
-    expect(ids).toContain('notes#First Topic');
-    expect(ids).toContain('notes#Second Topic');
+    expect(ids).toContain('lat.md/dev-process#Dev Process');
+    expect(ids).toContain('lat.md/dev-process#Dev Process#Testing');
+    expect(ids).toContain('lat.md/dev-process#Dev Process#Testing#Running Tests');
+    expect(ids).toContain('lat.md/dev-process#Dev Process#Formatting');
+    expect(ids).toContain('lat.md/notes#Notes');
+    expect(ids).toContain('lat.md/notes#Notes#First Topic');
+    expect(ids).toContain('lat.md/notes#Notes#Second Topic');
   });
 
   // @lat: [[section-parsing#Populates position and body fields]]
@@ -55,13 +55,15 @@ describe('basic-project', () => {
     const flat = flattenSections(sections);
 
     const running = flat.find(
-      (s) => s.id === 'dev-process#Testing#Running Tests',
+      (s) => s.id === 'lat.md/dev-process#Dev Process#Testing#Running Tests',
     )!;
     expect(running.startLine).toBe(5);
     expect(running.endLine).toBe(8);
     expect(running.body).toBe('Run tests with vitest.');
 
-    const formatting = flat.find((s) => s.id === 'dev-process#Formatting')!;
+    const formatting = flat.find(
+      (s) => s.id === 'lat.md/dev-process#Dev Process#Formatting',
+    )!;
     expect(formatting.startLine).toBe(9);
     expect(formatting.body).toBe('Prettier all the things.');
   });
@@ -70,7 +72,7 @@ describe('basic-project', () => {
   it('renders inline code in body text', async () => {
     const sections = await loadAllSections(lat);
     const flat = flattenSections(sections);
-    const first = flat.find((s) => s.id === 'notes#First Topic')!;
+    const first = flat.find((s) => s.id === 'lat.md/notes#Notes#First Topic')!;
     expect(first.body).toBe('Run `vitest` to test.');
   });
 
@@ -78,7 +80,7 @@ describe('basic-project', () => {
   it('renders wiki links in body text', async () => {
     const sections = await loadAllSections(lat);
     const flat = flattenSections(sections);
-    const second = flat.find((s) => s.id === 'notes#Second Topic')!;
+    const second = flat.find((s) => s.id === 'lat.md/notes#Notes#Second Topic')!;
     expect(second.body).toBe('See [[dev-process#Testing]] for more.');
   });
 
@@ -88,11 +90,11 @@ describe('basic-project', () => {
     const notesFile = files.find((f) => f.endsWith('notes.md'))!;
     const { readFile } = await import('node:fs/promises');
     const content = await readFile(notesFile, 'utf-8');
-    const refs = extractRefs(notesFile, content, lat);
+    const refs = extractRefs(notesFile, content, caseDir('basic-project'));
 
     expect(refs).toHaveLength(1);
     expect(refs[0].target).toBe('dev-process#Testing');
-    expect(refs[0].fromSection).toBe('notes#Second Topic');
+    expect(refs[0].fromSection).toBe('lat.md/notes#Notes#Second Topic');
   });
 
   // @lat: [[ref-extraction#Returns empty for files without links]]
@@ -101,7 +103,7 @@ describe('basic-project', () => {
     const devFile = files.find((f) => f.endsWith('dev-process.md'))!;
     const { readFile } = await import('node:fs/promises');
     const content = await readFile(devFile, 'utf-8');
-    const refs = extractRefs(devFile, content, lat);
+    const refs = extractRefs(devFile, content, caseDir('basic-project'));
 
     expect(refs).toHaveLength(0);
   });
@@ -111,12 +113,16 @@ describe('basic-project', () => {
     const sections = await loadAllSections(lat);
     const flat = flattenSections(sections);
     const running = flat.find(
-      (s) => s.id === 'dev-process#Testing#Running Tests',
+      (s) => s.id === 'lat.md/dev-process#Dev Process#Testing#Running Tests',
     )!;
 
-    const output = stripAnsi(formatSectionPreview(running, lat));
+    const output = stripAnsi(
+      formatSectionPreview(running, caseDir('basic-project')),
+    );
     const lines = output.split('\n');
-    expect(lines[0]).toBe('* Section: [[dev-process#Testing#Running Tests]]');
+    expect(lines[0]).toBe(
+      '* Section: [[lat.md/dev-process#Dev Process#Testing#Running Tests]]',
+    );
     expect(lines[1]).toContain('Defined in');
     expect(lines[1]).toContain('dev-process.md:5-8');
     expect(lines[3]).toContain('> Run tests with vitest.');
@@ -126,11 +132,17 @@ describe('basic-project', () => {
   it('formats section preview without body', async () => {
     const sections = await loadAllSections(lat);
     const flat = flattenSections(sections);
-    const testing = flat.find((s) => s.id === 'dev-process#Testing')!;
+    const testing = flat.find(
+      (s) => s.id === 'lat.md/dev-process#Dev Process#Testing',
+    )!;
 
-    const output = stripAnsi(formatSectionPreview(testing, lat));
+    const output = stripAnsi(
+      formatSectionPreview(testing, caseDir('basic-project')),
+    );
     const lines = output.split('\n');
-    expect(lines[0]).toBe('* Section: [[dev-process#Testing]]');
+    expect(lines[0]).toBe(
+      '* Section: [[lat.md/dev-process#Dev Process#Testing]]',
+    );
     expect(lines[1]).toContain('Defined in');
     expect(lines[1]).toContain('dev-process.md:3-4');
     expect(lines).toHaveLength(2);
@@ -141,7 +153,7 @@ describe('basic-project', () => {
     const sections = await loadAllSections(lat);
     const matches = findSections(sections, 'dev-process#Testing#Running Tests');
     expect(matches).toHaveLength(1);
-    expect(matches[0].section.file).toBe('dev-process');
+    expect(matches[0].section.file).toBe('lat.md/dev-process');
   });
 
   // @lat: [[locate#Matches subsection by trailing segment]]
@@ -149,7 +161,9 @@ describe('basic-project', () => {
     const sections = await loadAllSections(lat);
     const matches = findSections(sections, 'Running Tests');
     expect(matches.length).toBeGreaterThanOrEqual(1);
-    expect(matches[0].section.id).toBe('dev-process#Testing#Running Tests');
+    expect(matches[0].section.id).toBe(
+      'lat.md/dev-process#Dev Process#Testing#Running Tests',
+    );
   });
 
   // @lat: [[locate#Fuzzy matches with typos]]
@@ -157,7 +171,9 @@ describe('basic-project', () => {
     const sections = await loadAllSections(lat);
     const matches = findSections(sections, 'Runing Tests');
     expect(matches.length).toBeGreaterThanOrEqual(1);
-    expect(matches[0].section.id).toBe('dev-process#Testing#Running Tests');
+    expect(matches[0].section.id).toBe(
+      'lat.md/dev-process#Dev Process#Testing#Running Tests',
+    );
   });
 
   it('locate returns empty for non-matching query', async () => {
@@ -169,7 +185,10 @@ describe('basic-project', () => {
   it('locate reports match reasons', async () => {
     const sections = await loadAllSections(lat);
 
-    const exact = findSections(sections, 'dev-process#Testing');
+    const exact = findSections(
+      sections,
+      'lat.md/dev-process#Dev Process#Testing',
+    );
     expect(exact[0].reason).toBe('exact match');
 
     const sub = findSections(sections, 'Running Tests');
@@ -184,8 +203,11 @@ describe('basic-project', () => {
     const sections = await loadAllSections(lat);
     const matches = findSections(sections, 'dev-process#Running Tests');
     expect(matches.length).toBeGreaterThanOrEqual(1);
-    expect(matches[0].section.id).toBe('dev-process#Testing#Running Tests');
-    expect(matches[0].reason).toContain('1 intermediate section skipped');
+    expect(matches[0].section.id).toBe(
+      'lat.md/dev-process#Dev Process#Testing#Running Tests',
+    );
+    expect(matches[0].reason).toContain('intermediate section');
+    expect(matches[0].reason).toContain('skipped');
   });
 
   // @lat: [[locate#Strips brackets from query]]
@@ -197,7 +219,9 @@ describe('basic-project', () => {
     const stripped = '[[Running Tests]]'.replace(/^\[\[|\]\]$/g, '');
     const matches = findSections(sections, stripped);
     expect(matches.length).toBeGreaterThanOrEqual(1);
-    expect(matches[0].section.id).toBe('dev-process#Testing#Running Tests');
+    expect(matches[0].section.id).toBe(
+      'lat.md/dev-process#Dev Process#Testing#Running Tests',
+    );
   });
 
   // @lat: [[locate#Strips leading hash from query]]
@@ -205,7 +229,9 @@ describe('basic-project', () => {
     const sections = await loadAllSections(lat);
     const matches = findSections(sections, '#Testing');
     expect(matches.length).toBeGreaterThanOrEqual(1);
-    expect(matches[0].section.id).toBe('dev-process#Testing');
+    expect(matches[0].section.id).toBe(
+      'lat.md/dev-process#Dev Process#Testing',
+    );
     expect(matches[0].reason).toBe('section name match');
   });
 
@@ -217,14 +243,14 @@ describe('basic-project', () => {
     const allRefs = [];
     for (const file of files) {
       const content = await readFile(file, 'utf-8');
-      allRefs.push(...extractRefs(file, content, lat));
+      allRefs.push(...extractRefs(file, content, caseDir('basic-project')));
     }
 
     const matching = allRefs
       .filter((r) => r.target.toLowerCase() === 'dev-process#testing')
       .map((r) => r.fromSection.toLowerCase());
 
-    expect(matching).toContain('notes#second topic');
+    expect(matching).toContain('lat.md/notes#notes#second topic');
   });
 
   // @lat: [[check-md#Passes with valid links]]
@@ -244,24 +270,26 @@ describe('prompt', () => {
     return execSync(`node ${join(import.meta.dirname, '..', 'dist', 'src', 'cli', 'index.js')} prompt ${JSON.stringify(text)}`, {
       cwd: root,
       encoding: 'utf-8',
-      env: { ...process.env, _LAT_TEST_DISABLE_FS_CACHE: '1' },
+      env: process.env,
     });
   }
 
   // @lat: [[tests/prompt#Resolves exact ref with context]]
   it('resolves exact ref with "is referring to" context', () => {
     const output = runPrompt('see [[dev-process#Testing]]');
-    expect(output).toContain('see [[dev-process#Testing]]');
+    expect(output).toContain('see [[lat.md/dev-process#Dev Process#Testing]]');
     expect(output).toContain('<lat-context>');
     expect(output).toContain('`[[dev-process#Testing]]` is referring to:');
-    expect(output).toContain('* [[dev-process#Testing]]');
+    expect(output).toContain('* [[lat.md/dev-process#Dev Process#Testing]]');
     expect(output).toContain('dev-process.md:');
   });
 
   // @lat: [[tests/prompt#Resolves fuzzy ref with alternatives]]
   it('resolves fuzzy ref with "might be referring to" context', () => {
     const output = runPrompt('fix [[Runing Tests]]');
-    expect(output).toContain('[[dev-process#Testing#Running Tests]]');
+    expect(output).toContain(
+      '[[lat.md/dev-process#Dev Process#Testing#Running Tests]]',
+    );
     expect(output).toContain('`[[Runing Tests]]` might be referring to');
     expect(output).toContain('fuzzy match');
   });
@@ -360,7 +388,7 @@ describe('error-require-code-mention', () => {
       e.message.includes('requires a code mention'),
     );
     expect(uncovered).toHaveLength(1);
-    expect(uncovered[0].target).toBe('specs#Must Do Y');
+    expect(uncovered[0].target).toBe('lat.md/specs#Specs#Must Do Y');
   });
 });
 
@@ -372,7 +400,7 @@ describe('error-missing-index', () => {
     const errors = await checkIndex(latDir('error-missing-index'));
     expect(errors).toHaveLength(1);
     expect(errors[0].message).toContain('missing index file');
-    expect(errors[0].snippet).toContain('**notes.md**');
+    expect(errors[0].snippet).toContain('[[notes]]');
   });
 });
 
@@ -389,7 +417,7 @@ describe('error-stale-index', () => {
   it('reports entry that does not exist on disk', async () => {
     const errors = await checkIndex(latDir('error-stale-index'));
     expect(errors).toHaveLength(1);
-    expect(errors[0].message).toContain('"gone.md"');
+    expect(errors[0].message).toContain('"[[gone]]"');
     expect(errors[0].message).toContain('does not exist');
   });
 });
@@ -403,7 +431,7 @@ describe('error-missing-subdir-index', () => {
     expect(errors).toHaveLength(1);
     expect(errors[0].message).toContain('missing index file');
     expect(errors[0].message).toContain('guides');
-    expect(errors[0].snippet).toContain('**setup.md**');
+    expect(errors[0].snippet).toContain('[[setup]]');
   });
 });
 
@@ -420,7 +448,7 @@ describe('error-stale-subdir-index', () => {
   it('reports stale entry in subdirectory index', async () => {
     const errors = await checkIndex(latDir('error-stale-subdir-index'));
     expect(errors).toHaveLength(1);
-    expect(errors[0].message).toContain('"advanced.md"');
+    expect(errors[0].message).toContain('"[[advanced]]"');
     expect(errors[0].message).toContain('does not exist');
   });
 });
@@ -437,11 +465,11 @@ describe('error-ambiguous-short-ref', () => {
     const topicAErr = errors.find((e) => e.target === 'notes#Topic A')!;
     expect(topicAErr.message).toContain("ambiguous link '[[notes#Topic A]]'");
     expect(topicAErr.message).toContain('use either of');
-    expect(topicAErr.message).toContain("'[[alpha/notes#Topic A]]'");
-    expect(topicAErr.message).toContain("'[[beta/notes#Topic A]]'");
+    expect(topicAErr.message).toContain("'[[lat.md/alpha/notes#Topic A]]'");
+    expect(topicAErr.message).toContain("'[[lat.md/beta/notes#Topic A]]'");
     expect(topicAErr.message).toContain('short path "notes" is ambiguous');
-    expect(topicAErr.message).toContain('"alpha/notes.md"');
-    expect(topicAErr.message).toContain('"beta/notes.md"');
+    expect(topicAErr.message).toContain('"lat.md/alpha/notes.md"');
+    expect(topicAErr.message).toContain('"lat.md/beta/notes.md"');
     expect(topicAErr.message).toContain('Please fix the link');
   });
 
@@ -451,9 +479,11 @@ describe('error-ambiguous-short-ref', () => {
     const topicCErr = errors.find((e) => e.target === 'notes#Topic C');
     expect(topicCErr).toBeDefined();
     expect(topicCErr!.message).toContain("ambiguous link '[[notes#Topic C]]'");
-    expect(topicCErr!.message).toContain("did you mean '[[alpha/notes#Topic C]]'");
-    expect(topicCErr!.message).toContain('"alpha/notes.md"');
-    expect(topicCErr!.message).toContain('"beta/notes.md"');
+    expect(topicCErr!.message).toContain(
+      "did you mean '[[lat.md/alpha/notes#Topic C]]'",
+    );
+    expect(topicCErr!.message).toContain('"lat.md/alpha/notes.md"');
+    expect(topicCErr!.message).toContain('"lat.md/beta/notes.md"');
     expect(topicCErr!.message).toContain('Please fix the link');
   });
 
@@ -463,10 +493,10 @@ describe('error-ambiguous-short-ref', () => {
     expect(errors).toHaveLength(1);
     expect(errors[0].message).toContain("ambiguous link '[[notes#Topic B]]'");
     expect(errors[0].message).toContain('use either of');
-    expect(errors[0].message).toContain("'[[alpha/notes#Topic B]]'");
-    expect(errors[0].message).toContain("'[[beta/notes#Topic B]]'");
-    expect(errors[0].message).toContain('"alpha/notes.md"');
-    expect(errors[0].message).toContain('"beta/notes.md"');
+    expect(errors[0].message).toContain("'[[lat.md/alpha/notes#Topic B]]'");
+    expect(errors[0].message).toContain("'[[lat.md/beta/notes#Topic B]]'");
+    expect(errors[0].message).toContain('"lat.md/alpha/notes.md"');
+    expect(errors[0].message).toContain('"lat.md/beta/notes.md"');
     expect(errors[0].message).toContain('Please fix the link');
   });
 });
@@ -493,7 +523,7 @@ describe('short-ref', () => {
     const sections = await loadAllSections(lat);
     const matches = findSections(sections, 'setup#Install');
     expect(matches).toHaveLength(1);
-    expect(matches[0].section.id).toBe('guides/setup#Install');
+    expect(matches[0].section.id).toBe('lat.md/guides/setup#Setup#Install');
     expect(matches[0].reason).toMatch(/file stem expanded/);
   });
 
@@ -504,9 +534,9 @@ describe('short-ref', () => {
     // but not "guides/setup#Configure" — heading-only comparison
     const matches = findSections(sections, 'setup#Instal');
     expect(matches.length).toBeGreaterThanOrEqual(1);
-    expect(matches[0].section.id).toBe('guides/setup#Install');
+    expect(matches[0].section.id).toBe('lat.md/guides/setup#Setup#Install');
     const ids = matches.map((m) => m.section.id);
-    expect(ids).not.toContain('guides/setup#Configure');
+    expect(ids).not.toContain('lat.md/guides/setup#Setup#Configure');
   });
 
   // @lat: [[ref-resolution#Short ref refs finds md references]]
@@ -521,7 +551,7 @@ describe('short-ref', () => {
     const allRefs = [];
     for (const file of files) {
       const content = await readFile(file, 'utf-8');
-      allRefs.push(...extractRefs(file, content, lat));
+      allRefs.push(...extractRefs(file, content, caseDir('short-ref')));
     }
 
     // The query 'setup#Install' should resolve and match the wiki link
@@ -533,7 +563,7 @@ describe('short-ref', () => {
       })
       .map((r) => r.fromSection);
 
-    expect(matching).toContain('links');
+    expect(matching).toContain('lat.md/links#Links');
   });
 
   // @lat: [[ref-resolution#Short ref refs finds code references]]
@@ -579,7 +609,7 @@ describe('full-ref', () => {
     const sections = await loadAllSections(lat);
     const matches = findSections(sections, 'guides/setup#Install');
     expect(matches).toHaveLength(1);
-    expect(matches[0].section.id).toBe('guides/setup#Install');
+    expect(matches[0].section.id).toBe('lat.md/guides/setup#Setup#Install');
   });
 
   // @lat: [[ref-resolution#Full ref refs finds md references]]
@@ -594,17 +624,19 @@ describe('full-ref', () => {
     const allRefs = [];
     for (const file of files) {
       const content = await readFile(file, 'utf-8');
-      allRefs.push(...extractRefs(file, content, lat));
+      allRefs.push(...extractRefs(file, content, caseDir('full-ref')));
     }
 
     const matching = allRefs
       .filter((r) => {
         const { resolved } = resolveRef(r.target, sectionIds, fileIndex);
-        return resolved.toLowerCase() === 'guides/setup#install';
+        return (
+          resolved.toLowerCase() === 'lat.md/guides/setup#setup#install'
+        );
       })
       .map((r) => r.fromSection);
 
-    expect(matching).toContain('links');
+    expect(matching).toContain('lat.md/links#Links');
   });
 
   // @lat: [[ref-resolution#Full ref refs finds code references]]
@@ -699,5 +731,88 @@ describe('error-bad-nested-refs', () => {
     const missing = errors.find((e) => e.target === 'guide#Setup#Missing');
     expect(missing).toBeDefined();
     expect(missing!.message).toContain('no matching section found');
+  });
+});
+
+// --- source code wiki links ---
+
+describe('source-ref-ts-valid', () => {
+  it('resolves TS function, class, method, and const refs without errors', async () => {
+    // docs.md links: greet (function), Greeter (class),
+    // Greeter#greet (method), DEFAULT_NAME (const)
+    const { errors } = await checkMd(latDir('source-ref-ts-valid'));
+    expect(errors).toHaveLength(0);
+  });
+});
+
+describe('source-ref-py-valid', () => {
+  it('resolves Python function, class, method, and variable refs without errors', async () => {
+    // docs.md links: greet (function), Greeter (class),
+    // Greeter#greet (method), DEFAULT_NAME (variable)
+    const { errors } = await checkMd(latDir('source-ref-py-valid'));
+    expect(errors).toHaveLength(0);
+  });
+});
+
+describe('error-source-ref-ts-missing', () => {
+  it('check md reports all missing TS symbols', async () => {
+    const { errors } = await checkMd(latDir('error-source-ref-ts-missing'));
+    expect(errors).toHaveLength(4);
+
+    const byTarget = new Map(errors.map((e) => [e.target, e]));
+
+    const fn = byTarget.get('src/app.ts#nonexistent')!;
+    expect(fn).toBeDefined();
+    expect(fn.message).toContain('symbol "nonexistent" not found');
+
+    const cls = byTarget.get('src/app.ts#MissingClass')!;
+    expect(cls).toBeDefined();
+    expect(cls.message).toContain('symbol "MissingClass" not found');
+
+    const cnst = byTarget.get('src/app.ts#MISSING_CONST')!;
+    expect(cnst).toBeDefined();
+    expect(cnst.message).toContain('symbol "MISSING_CONST" not found');
+
+    const method = byTarget.get('src/app.ts#Greeter#missingMethod')!;
+    expect(method).toBeDefined();
+    expect(method.message).toContain(
+      'symbol "Greeter#missingMethod" not found',
+    );
+  });
+});
+
+describe('error-source-ref-py-missing', () => {
+  it('check md reports all missing Python symbols', async () => {
+    const { errors } = await checkMd(latDir('error-source-ref-py-missing'));
+    expect(errors).toHaveLength(4);
+
+    const byTarget = new Map(errors.map((e) => [e.target, e]));
+
+    const fn = byTarget.get('src/app.py#nonexistent')!;
+    expect(fn).toBeDefined();
+    expect(fn.message).toContain('symbol "nonexistent" not found');
+
+    const cls = byTarget.get('src/app.py#MissingClass')!;
+    expect(cls).toBeDefined();
+    expect(cls.message).toContain('symbol "MissingClass" not found');
+
+    const v = byTarget.get('src/app.py#MISSING_VAR')!;
+    expect(v).toBeDefined();
+    expect(v.message).toContain('symbol "MISSING_VAR" not found');
+
+    const method = byTarget.get('src/app.py#Greeter#missing_method')!;
+    expect(method).toBeDefined();
+    expect(method.message).toContain(
+      'symbol "Greeter#missing_method" not found',
+    );
+  });
+});
+
+describe('error-source-ref-bad-file', () => {
+  it('check md detects wiki link to nonexistent source file', async () => {
+    const { errors } = await checkMd(latDir('error-source-ref-bad-file'));
+    expect(errors).toHaveLength(1);
+    expect(errors[0].target).toBe('src/missing.ts#foo');
+    expect(errors[0].message).toContain('file "src/missing.ts" not found');
   });
 });
