@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { execSync } from 'child_process';
 import { parse, toMarkdown } from '../src/parser.js';
 import { visit } from 'unist-util-visit';
@@ -118,6 +120,16 @@ describe('toMarkdown', () => {
 
 See [[Billing#Cancellation policy]] for details.
 `;
+    const tree = parse(input);
+    const output = toMarkdown(tree);
+    expect(output).toBe(input);
+  });
+
+  it('round-trips a comprehensive markdown file with all features', async () => {
+    const input = await readFile(
+      join(import.meta.dirname, 'roundtrip.md'),
+      'utf-8',
+    );
     const tree = parse(input);
     const output = toMarkdown(tree);
     expect(output).toBe(input);
