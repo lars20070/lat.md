@@ -75,7 +75,15 @@ function countByExt(paths: string[]): FileStats {
 }
 
 /** Source file extensions recognized for code wiki links. */
-const SOURCE_EXTS = new Set(['.ts', '.tsx', '.js', '.jsx', '.py']);
+const SOURCE_EXTS = new Set([
+  '.ts',
+  '.tsx',
+  '.js',
+  '.jsx',
+  '.py',
+  '.rs',
+  '.go',
+]);
 
 function isSourcePath(target: string): boolean {
   const hashIdx = target.indexOf('#');

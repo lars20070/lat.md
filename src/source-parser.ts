@@ -55,6 +55,8 @@ async function getLanguage(ext: string): Promise<Language | null> {
     '.js': 'tree-sitter-javascript.wasm',
     '.jsx': 'tree-sitter-javascript.wasm',
     '.py': 'tree-sitter-python.wasm',
+    '.rs': 'tree-sitter-rust.wasm',
+    '.go': 'tree-sitter-go.wasm',
   };
   const wasmFile = grammarMap[ext];
   if (!wasmFile) return null;
@@ -277,6 +279,223 @@ function extractPySymbols(tree: Tree): SourceSymbol[] {
   return symbols;
 }
 
+function extractRustSymbols(tree: Tree): SourceSymbol[] {
+  const symbols: SourceSymbol[] = [];
+  const root = tree.rootNode;
+
+  for (let i = 0; i < root.childCount; i++) {
+    const node = root.child(i)!;
+    const startLine = node.startPosition.row + 1;
+    const endLine = node.endPosition.row + 1;
+
+    if (node.type === 'function_item') {
+      const name = extractName(node);
+      if (name) {
+        symbols.push({
+          name,
+          kind: 'function',
+          startLine,
+          endLine,
+          signature: firstLine(node.text),
+        });
+      }
+    } else if (node.type === 'struct_item') {
+      const name = extractName(node);
+      if (name) {
+        symbols.push({
+          name,
+          kind: 'class',
+          startLine,
+          endLine,
+          signature: firstLine(node.text),
+        });
+      }
+    } else if (node.type === 'enum_item') {
+      const name = extractName(node);
+      if (name) {
+        symbols.push({
+          name,
+          kind: 'class',
+          startLine,
+          endLine,
+          signature: firstLine(node.text),
+        });
+      }
+    } else if (node.type === 'trait_item') {
+      const name = extractName(node);
+      if (name) {
+        symbols.push({
+          name,
+          kind: 'interface',
+          startLine,
+          endLine,
+          signature: firstLine(node.text),
+        });
+      }
+    } else if (node.type === 'impl_item') {
+      // impl Type { ... } or impl Trait for Type { ... }
+      const typeName = node.childForFieldName('type')?.text;
+      if (!typeName) continue;
+      const body = node.childForFieldName('body');
+      if (!body) continue;
+      for (let j = 0; j < body.namedChildCount; j++) {
+        const member = body.namedChild(j)!;
+        if (member.type === 'function_item') {
+          const name = extractName(member);
+          if (name) {
+            symbols.push({
+              name,
+              kind: 'method',
+              parent: typeName,
+              startLine: member.startPosition.row + 1,
+              endLine: member.endPosition.row + 1,
+              signature: firstLine(member.text),
+            });
+          }
+        }
+      }
+    } else if (node.type === 'const_item') {
+      const name = extractName(node);
+      if (name) {
+        symbols.push({
+          name,
+          kind: 'const',
+          startLine,
+          endLine,
+          signature: firstLine(node.text),
+        });
+      }
+    } else if (node.type === 'static_item') {
+      const name = extractName(node);
+      if (name) {
+        symbols.push({
+          name,
+          kind: 'variable',
+          startLine,
+          endLine,
+          signature: firstLine(node.text),
+        });
+      }
+    } else if (node.type === 'type_item') {
+      const name = extractName(node);
+      if (name) {
+        symbols.push({
+          name,
+          kind: 'type',
+          startLine,
+          endLine,
+          signature: firstLine(node.text),
+        });
+      }
+    }
+  }
+
+  return symbols;
+}
+
+/**
+ * Extract the receiver type name from a Go method declaration's receiver node.
+ * Handles both value receivers (Greeter) and pointer receivers (*Greeter).
+ */
+function goReceiverType(receiverNode: SyntaxNode): string | null {
+  const param = receiverNode.namedChild(0);
+  if (!param) return null;
+  const typeNode = param.childForFieldName('type');
+  if (!typeNode) return null;
+  // pointer_type -> child is the actual type name
+  if (typeNode.type === 'pointer_type') {
+    return typeNode.namedChild(0)?.text ?? null;
+  }
+  return typeNode.text;
+}
+
+function extractGoSymbols(tree: Tree): SourceSymbol[] {
+  const symbols: SourceSymbol[] = [];
+  const root = tree.rootNode;
+
+  for (let i = 0; i < root.childCount; i++) {
+    const node = root.child(i)!;
+    const startLine = node.startPosition.row + 1;
+    const endLine = node.endPosition.row + 1;
+
+    if (node.type === 'function_declaration') {
+      const name = extractName(node);
+      if (name) {
+        symbols.push({
+          name,
+          kind: 'function',
+          startLine,
+          endLine,
+          signature: firstLine(node.text),
+        });
+      }
+    } else if (node.type === 'method_declaration') {
+      const name = extractName(node);
+      const receiver = node.childForFieldName('receiver');
+      const typeName = receiver ? goReceiverType(receiver) : null;
+      if (name && typeName) {
+        symbols.push({
+          name,
+          kind: 'method',
+          parent: typeName,
+          startLine,
+          endLine,
+          signature: firstLine(node.text),
+        });
+      }
+    } else if (node.type === 'type_declaration') {
+      for (let j = 0; j < node.namedChildCount; j++) {
+        const spec = node.namedChild(j)!;
+        if (spec.type !== 'type_spec') continue;
+        const name = spec.childForFieldName('name')?.text;
+        if (!name) continue;
+        const typeNode = spec.childForFieldName('type');
+        const kind =
+          typeNode?.type === 'interface_type' ? 'interface' : 'class';
+        symbols.push({
+          name,
+          kind,
+          startLine: spec.startPosition.row + 1,
+          endLine: spec.endPosition.row + 1,
+          signature: firstLine(node.text),
+        });
+      }
+    } else if (node.type === 'const_declaration') {
+      for (let j = 0; j < node.namedChildCount; j++) {
+        const spec = node.namedChild(j)!;
+        if (spec.type !== 'const_spec') continue;
+        const name = spec.childForFieldName('name')?.text;
+        if (name) {
+          symbols.push({
+            name,
+            kind: 'const',
+            startLine: spec.startPosition.row + 1,
+            endLine: spec.endPosition.row + 1,
+            signature: firstLine(node.text),
+          });
+        }
+      }
+    } else if (node.type === 'var_declaration') {
+      for (let j = 0; j < node.namedChildCount; j++) {
+        const spec = node.namedChild(j)!;
+        if (spec.type !== 'var_spec') continue;
+        const name = spec.childForFieldName('name')?.text;
+        if (name) {
+          symbols.push({
+            name,
+            kind: 'variable',
+            startLine: spec.startPosition.row + 1,
+            endLine: spec.endPosition.row + 1,
+            signature: firstLine(node.text),
+          });
+        }
+      }
+    }
+  }
+
+  return symbols;
+}
+
 function firstLine(text: string): string {
   const nl = text.indexOf('\n');
   return nl === -1 ? text : text.slice(0, nl);
@@ -297,6 +516,12 @@ export async function parseSourceSymbols(
 
   if (ext === '.py') {
     return extractPySymbols(tree);
+  }
+  if (ext === '.rs') {
+    return extractRustSymbols(tree);
+  }
+  if (ext === '.go') {
+    return extractGoSymbols(tree);
   }
   return extractTsSymbols(tree);
 }

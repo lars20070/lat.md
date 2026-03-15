@@ -44,7 +44,9 @@ describe('basic-project', () => {
 
     expect(ids).toContain('lat.md/dev-process#Dev Process');
     expect(ids).toContain('lat.md/dev-process#Dev Process#Testing');
-    expect(ids).toContain('lat.md/dev-process#Dev Process#Testing#Running Tests');
+    expect(ids).toContain(
+      'lat.md/dev-process#Dev Process#Testing#Running Tests',
+    );
     expect(ids).toContain('lat.md/dev-process#Dev Process#Formatting');
     expect(ids).toContain('lat.md/notes#Notes');
     expect(ids).toContain('lat.md/notes#Notes#First Topic');
@@ -82,7 +84,9 @@ describe('basic-project', () => {
   it('renders wiki links in body text', async () => {
     const sections = await loadAllSections(lat);
     const flat = flattenSections(sections);
-    const second = flat.find((s) => s.id === 'lat.md/notes#Notes#Second Topic')!;
+    const second = flat.find(
+      (s) => s.id === 'lat.md/notes#Notes#Second Topic',
+    )!;
     expect(second.body).toBe('See [[dev-process#Testing]] for more.');
   });
 
@@ -269,11 +273,14 @@ describe('prompt', () => {
   const root = caseDir('basic-project');
 
   function runPrompt(text: string): string {
-    return execSync(`node ${join(import.meta.dirname, '..', 'dist', 'src', 'cli', 'index.js')} prompt ${JSON.stringify(text)}`, {
-      cwd: root,
-      encoding: 'utf-8',
-      env: process.env,
-    });
+    return execSync(
+      `node ${join(import.meta.dirname, '..', 'dist', 'src', 'cli', 'index.js')} prompt ${JSON.stringify(text)}`,
+      {
+        cwd: root,
+        encoding: 'utf-8',
+        env: process.env,
+      },
+    );
   }
 
   // @lat: [[tests/prompt#Resolves exact ref with context]]
@@ -330,7 +337,9 @@ describe('valid-links', () => {
 describe('error-dangling-code-ref', () => {
   // @lat: [[check-code-refs#Detects dangling code ref]]
   it('check code-refs detects @lat pointing to nonexistent section', async () => {
-    const { errors, files } = await checkCodeRefs(latDir('error-dangling-code-ref'));
+    const { errors, files } = await checkCodeRefs(
+      latDir('error-dangling-code-ref'),
+    );
     const dangling = errors.filter((e) => e.target === 'Alpha#Nonexistent');
     expect(dangling).toHaveLength(1);
     expect(dangling[0].message).toContain('no matching section found');
@@ -385,7 +394,9 @@ describe('gitignore-filtering', () => {
 describe('error-require-code-mention', () => {
   // @lat: [[check-code-refs#Detects missing code mention for required file]]
   it('check code-refs detects uncovered leaf sections', async () => {
-    const { errors } = await checkCodeRefs(latDir('error-require-code-mention'));
+    const { errors } = await checkCodeRefs(
+      latDir('error-require-code-mention'),
+    );
     const uncovered = errors.filter((e) =>
       e.message.includes('requires a code mention'),
     );
@@ -547,9 +558,7 @@ describe('short-ref', () => {
     const result = await findRefs(lat, projectRoot, 'setup#Install', 'md');
     expect(result.kind).toBe('found');
     if (result.kind !== 'found') return;
-    expect(result.target.id).toBe(
-      'lat.md/guides/setup#Setup#Install',
-    );
+    expect(result.target.id).toBe('lat.md/guides/setup#Setup#Install');
     const ids = result.mdRefs.map((r) => r.section.id);
     expect(ids).toContain('lat.md/links#Links');
   });
@@ -560,9 +569,7 @@ describe('short-ref', () => {
     const result = await findRefs(lat, projectRoot, 'setup#Configure', 'code');
     expect(result.kind).toBe('found');
     if (result.kind !== 'found') return;
-    expect(result.target.id).toBe(
-      'lat.md/guides/setup#Setup#Configure',
-    );
+    expect(result.target.id).toBe('lat.md/guides/setup#Setup#Configure');
     expect(result.codeRefs).toHaveLength(1);
     expect(result.codeRefs[0]).toContain('app.ts');
   });
@@ -785,6 +792,78 @@ describe('error-source-ref-bad-file', () => {
     expect(errors).toHaveLength(1);
     expect(errors[0].target).toBe('src/missing.ts#foo');
     expect(errors[0].message).toContain('file "src/missing.ts" not found');
+  });
+});
+
+describe('source-ref-rs-valid', () => {
+  it('resolves Rust function, struct, trait, method, const, and enum refs without errors', async () => {
+    // docs.md links: greet (fn), Greeter (struct), Greeter#greet (method),
+    // Greeting (trait), DEFAULT_NAME (const), Color (enum)
+    const { errors } = await checkMd(latDir('source-ref-rs-valid'));
+    expect(errors).toHaveLength(0);
+  });
+});
+
+describe('source-ref-go-valid', () => {
+  it('resolves Go function, struct, method, interface, and const refs without errors', async () => {
+    // docs.md links: Greet (func), Greeter (struct), Greeter#Greet (method),
+    // NewGreeter (func), Greeting (interface), DefaultName (const)
+    const { errors } = await checkMd(latDir('source-ref-go-valid'));
+    expect(errors).toHaveLength(0);
+  });
+});
+
+describe('error-source-ref-rs-missing', () => {
+  it('check md reports all missing Rust symbols', async () => {
+    const { errors } = await checkMd(latDir('error-source-ref-rs-missing'));
+    expect(errors).toHaveLength(4);
+
+    const byTarget = new Map(errors.map((e) => [e.target, e]));
+
+    const fn = byTarget.get('src/app.rs#nonexistent')!;
+    expect(fn).toBeDefined();
+    expect(fn.message).toContain('symbol "nonexistent" not found');
+
+    const st = byTarget.get('src/app.rs#MissingStruct')!;
+    expect(st).toBeDefined();
+    expect(st.message).toContain('symbol "MissingStruct" not found');
+
+    const cnst = byTarget.get('src/app.rs#MISSING_CONST')!;
+    expect(cnst).toBeDefined();
+    expect(cnst.message).toContain('symbol "MISSING_CONST" not found');
+
+    const method = byTarget.get('src/app.rs#Greeter#missing_method')!;
+    expect(method).toBeDefined();
+    expect(method.message).toContain(
+      'symbol "Greeter#missing_method" not found',
+    );
+  });
+});
+
+describe('error-source-ref-go-missing', () => {
+  it('check md reports all missing Go symbols', async () => {
+    const { errors } = await checkMd(latDir('error-source-ref-go-missing'));
+    expect(errors).toHaveLength(4);
+
+    const byTarget = new Map(errors.map((e) => [e.target, e]));
+
+    const fn = byTarget.get('src/app.go#nonexistent')!;
+    expect(fn).toBeDefined();
+    expect(fn.message).toContain('symbol "nonexistent" not found');
+
+    const st = byTarget.get('src/app.go#MissingStruct')!;
+    expect(st).toBeDefined();
+    expect(st.message).toContain('symbol "MissingStruct" not found');
+
+    const cnst = byTarget.get('src/app.go#MISSING_CONST')!;
+    expect(cnst).toBeDefined();
+    expect(cnst.message).toContain('symbol "MISSING_CONST" not found');
+
+    const method = byTarget.get('src/app.go#Greeter#MissingMethod')!;
+    expect(method).toBeDefined();
+    expect(method.message).toContain(
+      'symbol "Greeter#MissingMethod" not found',
+    );
   });
 });
 
