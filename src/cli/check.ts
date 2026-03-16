@@ -302,9 +302,24 @@ export async function checkIndex(latticeDir: string): Promise<IndexError[]> {
   const errors: IndexError[] = [];
   const allPaths = await walkEntries(latticeDir);
 
+  // Flag non-.md files — only markdown belongs in lat.md/
+  for (const p of allPaths) {
+    const name = p.includes('/') ? p.slice(p.lastIndexOf('/') + 1) : p;
+    if (!name.endsWith('.md')) {
+      const relDir = basename(latticeDir) + '/';
+      errors.push({
+        dir: relDir,
+        message: `"${p}" is not a .md file — only markdown files belong in lat.md/`,
+      });
+    }
+  }
+
+  // Only .md files participate in index validation
+  const mdPaths = allPaths.filter((p) => p.endsWith('.md'));
+
   // Collect all directories to check (including root, represented as '')
   const dirs = new Set<string>(['']);
-  for (const p of allPaths) {
+  for (const p of mdPaths) {
     const parts = p.split('/');
     // Add every directory prefix
     for (let i = 1; i < parts.length; i++) {
@@ -322,7 +337,7 @@ export async function checkIndex(latticeDir: string): Promise<IndexError[]> {
 
     // Get the immediate children of this directory
     const prefix = dir === '' ? '' : dir + '/';
-    const childPaths = allPaths
+    const childPaths = mdPaths
       .filter((p) => p.startsWith(prefix) && p !== indexRelPath)
       .map((p) => p.slice(prefix.length));
     const children = immediateEntries(childPaths);

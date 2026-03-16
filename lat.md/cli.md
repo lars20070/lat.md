@@ -87,10 +87,13 @@ Validate directory index files. Every directory inside `lat.md/` (including the 
 
 Each index file must contain a bullet list covering every visible file and subdirectory with a one-sentence description, using wiki links: `- [[name]] — description`. File entries omit the `.md` extension (e.g. `[[cli]]` not `[[cli.md]]`). Root example: `lat.md/lat.md`; subdirectory example: `lat.md/api/api.md`.
 
-Three checks:
-1. **Missing index file** — errors with a ready-to-copy bullet list snippet
-2. **Missing entries** — index file exists but doesn't list all visible entries
-3. **Stale entries** — index file lists an entry that doesn't exist on disk
+Four checks:
+1. **Non-markdown files** — any file without a `.md` extension is flagged as an error (only markdown belongs in `lat.md/`)
+2. **Missing index file** — errors with a ready-to-copy bullet list snippet
+3. **Missing entries** — index file exists but doesn't list all visible entries
+4. **Stale entries** — index file lists an entry that doesn't exist on disk
+
+Only `.md` files participate in index validation — non-markdown files are reported separately and excluded from the directory listing.
 
 Directory walking uses [[dev-process#File Walking]] to respect `.gitignore` rules — hidden/ignored entries (`.cache`, `.obsidian`, etc.) are automatically excluded.
 

@@ -29,3 +29,11 @@ Given a `lat.md/` directory where both the root and a subdirectory have correct 
 ## Detects stale subdirectory index entry
 
 Given a subdirectory index file that lists a file which does not exist on disk, `checkIndex` reports it as a stale entry.
+
+## Detects non-markdown file
+
+Given a `lat.md/` directory containing a file without a `.md` extension (e.g. `README`), `checkIndex` reports it as an error since only markdown files belong in `lat.md/`.
+
+## Non-markdown files excluded from index listing
+
+Non-`.md` files do not appear in missing-entry suggestions or index snippets — only markdown files participate in index validation.

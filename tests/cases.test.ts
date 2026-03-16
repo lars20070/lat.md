@@ -1073,3 +1073,26 @@ describe('error-long-body', () => {
     expect(linkSection).toBeUndefined();
   });
 });
+
+// --- non-md file in lat.md/ ---
+
+describe('error-non-md-file', () => {
+  // @lat: [[check-index#Detects non-markdown file]]
+  it('reports non-.md file as error', async () => {
+    const errors = await checkIndex(latDir('error-non-md-file'));
+    const nonMd = errors.filter((e) => e.message.includes('not a .md file'));
+    expect(nonMd).toHaveLength(1);
+    expect(nonMd[0].message).toContain('README');
+  });
+
+  // @lat: [[check-index#Non-markdown files excluded from index listing]]
+  it('does not include non-.md file in missing index entries', async () => {
+    const errors = await checkIndex(latDir('error-non-md-file'));
+    const indexErrors = errors.filter(
+      (e) => e.message.includes('missing entries') || e.snippet,
+    );
+    for (const err of indexErrors) {
+      expect(err.snippet ?? '').not.toContain('README');
+    }
+  });
+});
