@@ -48,6 +48,18 @@ program
   });
 
 program
+  .command('section')
+  .description(
+    'Show a section with its content, outgoing refs, and incoming refs',
+  )
+  .argument('<query>', 'section id to look up')
+  .action(async (query: string) => {
+    const ctx = resolveContext(program.opts());
+    const { sectionCmd } = await import('./section.js');
+    await sectionCmd(ctx, query);
+  });
+
+program
   .command('refs')
   .description('Find references to a section')
   .argument('<query>', 'section id to find references for')
@@ -156,6 +168,16 @@ program
   .action(async (dir?: string) => {
     const { initCmd } = await import('./init.js');
     await initCmd(dir);
+  });
+
+program
+  .command('hook')
+  .description('Handle agent hook events (called by agent hooks, not directly)')
+  .argument('<agent>', 'agent name (claude)')
+  .argument('<event>', 'hook event (UserPromptSubmit, Stop)')
+  .action(async (agent: string, event: string) => {
+    const { hookCmd } = await import('./hook.js');
+    await hookCmd(agent, event);
   });
 
 program
