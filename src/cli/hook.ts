@@ -1,12 +1,9 @@
 import { dirname } from 'node:path';
 import { findLatticeDir } from '../lattice.js';
-import { expandPrompt } from './prompt.js';
+import { plainStyler, type CmdContext } from '../context.js';
+import { expandPrompt } from './expand.js';
 import { runSearch } from './search.js';
-import {
-  getSection,
-  formatSectionOutput,
-  type SectionFound,
-} from './section.js';
+import { getSection, formatSectionOutput } from './section.js';
 import { getLlmKey } from '../config.js';
 
 function outputPromptSubmit(context: string): void {
@@ -41,9 +38,17 @@ function hasWikiLinks(text: string): boolean {
   return /\[\[[^\]]+\]\]/.test(text);
 }
 
+function makeHookCtx(latDir: string): CmdContext {
+  return {
+    latDir,
+    projectRoot: dirname(latDir),
+    styler: plainStyler,
+    mode: 'cli',
+  };
+}
+
 async function searchAndExpand(
-  latDir: string,
-  projectRoot: string,
+  ctx: CmdContext,
   userPrompt: string,
 ): Promise<string | null> {
   let key: string | undefined;
@@ -54,7 +59,7 @@ async function searchAndExpand(
   }
   if (!key) return null;
 
-  const result = await runSearch(latDir, userPrompt, key, 5);
+  const result = await runSearch(ctx.latDir, userPrompt, key, 5);
   if (result.matches.length === 0) return null;
 
   const parts: string[] = [
@@ -63,13 +68,9 @@ async function searchAndExpand(
   ];
 
   for (const match of result.matches) {
-    const sectionResult = await getSection(
-      latDir,
-      projectRoot,
-      match.section.id,
-    );
+    const sectionResult = await getSection(ctx, match.section.id);
     if (sectionResult.kind === 'found') {
-      parts.push(formatSectionOutput(sectionResult, projectRoot));
+      parts.push(formatSectionOutput(ctx, sectionResult));
       parts.push('');
     }
   }
@@ -90,20 +91,20 @@ async function handleUserPromptSubmit(): Promise<void> {
   const parts: string[] = [];
 
   parts.push(
-    'Before starting work on this task:',
-    '1. Use `lat search` and `lat section` to navigate the knowledge graph as needed.',
-    '2. After completing work, run `lat check` to validate all links and code refs.',
-    'Do not skip these steps.',
+    "Before starting work, run `lat search` with one or more queries describing the user's intent.",
+    'ALWAYS do this, even when the task seems straightforward — search results may reveal critical design details, protocols, or constraints.',
+    'Use `lat section` to read the full content of relevant matches.',
+    'Do not read files, write code, or run commands until you have searched.',
   );
 
   const latDir = findLatticeDir();
   if (latDir && userPrompt) {
-    const projectRoot = dirname(latDir);
+    const ctx = makeHookCtx(latDir);
 
     // If the user prompt contains [[refs]], resolve them inline
     if (hasWikiLinks(userPrompt)) {
       try {
-        const expanded = await expandPrompt(latDir, projectRoot, userPrompt);
+        const expanded = await expandPrompt(ctx, userPrompt);
         if (expanded) {
           parts.push(
             '',
@@ -119,18 +120,14 @@ async function handleUserPromptSubmit(): Promise<void> {
       } catch {
         parts.push(
           '',
-          'NOTE: The user prompt contains [[refs]] but resolution failed. Run `lat prompt` on the prompt text manually.',
+          'NOTE: The user prompt contains [[refs]] but resolution failed. Run `lat expand` on the prompt text manually.',
         );
       }
     }
 
     // Search for relevant sections and include their full content
     try {
-      const searchContext = await searchAndExpand(
-        latDir,
-        projectRoot,
-        userPrompt,
-      );
+      const searchContext = await searchAndExpand(ctx, userPrompt);
       if (searchContext) {
         parts.push('', searchContext);
       }

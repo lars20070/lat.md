@@ -14,7 +14,8 @@ import {
 } from '../lattice.js';
 import { scanCodeRefs } from '../code-refs.js';
 import { walkEntries } from '../walk.js';
-import type { CliContext } from './context.js';
+import type { CmdContext, CmdResult, Styler } from '../context.js';
+import { INIT_VERSION, readInitVersion } from '../init-version.js';
 
 export type CheckError = {
   file: string;
@@ -75,7 +76,17 @@ function countByExt(paths: string[]): FileStats {
 }
 
 /** Source file extensions recognized for code wiki links. */
-const SOURCE_EXTS = new Set(['.ts', '.tsx', '.js', '.jsx', '.py']);
+const SOURCE_EXTS = new Set([
+  '.ts',
+  '.tsx',
+  '.js',
+  '.jsx',
+  '.py',
+  '.rs',
+  '.go',
+  '.c',
+  '.h',
+]);
 
 function isSourcePath(target: string): boolean {
   const hashIdx = target.indexOf('#');
@@ -93,6 +104,14 @@ async function tryResolveSourceRef(
   projectRoot: string,
 ): Promise<string | null> {
   if (!isSourcePath(target)) {
+    // Check if it looks like a file path with an unsupported extension
+    const hashIdx = target.indexOf('#');
+    const filePart = hashIdx === -1 ? target : target.slice(0, hashIdx);
+    const ext = extname(filePart);
+    if (ext && hashIdx !== -1) {
+      const supported = [...SOURCE_EXTS].sort().join(', ');
+      return `broken link [[${target}]] — unsupported file extension "${ext}". Supported: ${supported}`;
+    }
     return `broken link [[${target}]] — no matching section found`;
   }
 
@@ -283,9 +302,24 @@ export async function checkIndex(latticeDir: string): Promise<IndexError[]> {
   const errors: IndexError[] = [];
   const allPaths = await walkEntries(latticeDir);
 
+  // Flag non-.md files — only markdown belongs in lat.md/
+  for (const p of allPaths) {
+    const name = p.includes('/') ? p.slice(p.lastIndexOf('/') + 1) : p;
+    if (!name.endsWith('.md')) {
+      const relDir = basename(latticeDir) + '/';
+      errors.push({
+        dir: relDir,
+        message: `"${p}" is not a .md file — only markdown files belong in lat.md/`,
+      });
+    }
+  }
+
+  // Only .md files participate in index validation
+  const mdPaths = allPaths.filter((p) => p.endsWith('.md'));
+
   // Collect all directories to check (including root, represented as '')
   const dirs = new Set<string>(['']);
-  for (const p of allPaths) {
+  for (const p of mdPaths) {
     const parts = p.split('/');
     // Add every directory prefix
     for (let i = 1; i < parts.length; i++) {
@@ -303,7 +337,7 @@ export async function checkIndex(latticeDir: string): Promise<IndexError[]> {
 
     // Get the immediate children of this directory
     const prefix = dir === '' ? '' : dir + '/';
-    const childPaths = allPaths
+    const childPaths = mdPaths
       .filter((p) => p.startsWith(prefix) && p !== indexRelPath)
       .map((p) => p.slice(prefix.length));
     const children = immediateEntries(childPaths);
@@ -362,83 +396,108 @@ export async function checkIndex(latticeDir: string): Promise<IndexError[]> {
   return errors;
 }
 
-function formatErrors(
-  ctx: CliContext,
-  errors: CheckError[],
-  startIdx = 0,
-): void {
-  for (let i = 0; i < errors.length; i++) {
-    const err = errors[i];
-    if (i > 0 || startIdx > 0) console.error('');
-    const loc = ctx.chalk.cyan(err.file + ':' + err.line);
+// --- Section structure validation ---
+
+/** Max characters for the first paragraph of a section (excluding [[wiki links]]). */
+const MAX_BODY_LENGTH = 250;
+
+/** Count body text length excluding `[[...]]` wiki link markers and content. */
+function bodyTextLength(body: string): number {
+  return body.replace(/\[\[[^\]]*\]\]/g, '').length;
+}
+
+export async function checkSections(latticeDir: string): Promise<CheckError[]> {
+  const projectRoot = dirname(latticeDir);
+  const files = await listLatticeFiles(latticeDir);
+  const errors: CheckError[] = [];
+
+  for (const file of files) {
+    const content = await readFile(file, 'utf-8');
+    const sections = parseSections(file, content, projectRoot);
+    const flat = flattenSections(sections);
+    const relPath = relative(process.cwd(), file);
+
+    for (const section of flat) {
+      if (!section.firstParagraph) {
+        errors.push({
+          file: relPath,
+          line: section.startLine,
+          target: section.id,
+          message:
+            `section "${section.id}" has no leading paragraph. ` +
+            `Every section must start with a brief overview (≤${MAX_BODY_LENGTH} chars) ` +
+            `summarizing what it documents — this powers search snippets and command output.`,
+        });
+        continue;
+      }
+
+      const len = bodyTextLength(section.firstParagraph);
+      if (len > MAX_BODY_LENGTH) {
+        errors.push({
+          file: relPath,
+          line: section.startLine,
+          target: section.id,
+          message:
+            `section "${section.id}" leading paragraph is ${len} characters ` +
+            `(max ${MAX_BODY_LENGTH}, excluding [[wiki links]]). ` +
+            `Keep the first paragraph brief — it serves as the section's summary ` +
+            `in search results and command output. Use subsequent paragraphs for details.`,
+        });
+      }
+    }
+  }
+
+  return errors;
+}
+
+// --- Formatting helpers (shared by all check commands) ---
+
+function formatFileStats(files: FileStats, s: Styler): string {
+  const entries = Object.entries(files).sort(([a], [b]) => a.localeCompare(b));
+  return s.dim(
+    `Scanned ${entries.map(([ext, n]) => `${n} ${ext}`).join(', ')}`,
+  );
+}
+
+function formatCheckErrors(errors: CheckError[], s: Styler): string[] {
+  const lines: string[] = [];
+  for (const err of errors) {
+    lines.push('');
+    const loc = s.cyan(err.file + ':' + err.line);
     const [first, ...rest] = err.message.split('\n');
-    console.error(`- ${loc}: ${ctx.chalk.red(first)}`);
+    lines.push(`- ${loc}: ${s.red(first)}`);
     for (const line of rest) {
-      console.error(`  ${ctx.chalk.red(line)}`);
+      lines.push(`  ${s.red(line)}`);
     }
   }
+  return lines;
 }
 
-function formatIndexErrors(
-  ctx: CliContext,
-  errors: IndexError[],
-  startIdx = 0,
-): void {
-  for (let i = 0; i < errors.length; i++) {
-    if (i > 0 || startIdx > 0) console.error('');
-    const loc = ctx.chalk.cyan(errors[i].dir);
-    const [first, ...rest] = errors[i].message.split('\n');
-    console.error(`- ${loc}: ${ctx.chalk.red(first)}`);
+function formatCheckIndexErrors(errors: IndexError[], s: Styler): string[] {
+  const lines: string[] = [];
+  for (const err of errors) {
+    lines.push('');
+    const loc = s.cyan(err.dir);
+    const [first, ...rest] = err.message.split('\n');
+    lines.push(`- ${loc}: ${s.red(first)}`);
     for (const line of rest) {
-      console.error(`  ${ctx.chalk.red(line)}`);
+      lines.push(`  ${s.red(line)}`);
     }
   }
+  return lines;
 }
 
-function formatErrorCount(ctx: CliContext, count: number): void {
-  if (count > 0) {
-    console.error(
-      ctx.chalk.red(`\n${count} error${count === 1 ? '' : 's'} found`),
-    );
-  }
+function formatErrorCount(count: number, s: Styler): string {
+  return s.red(`\n${count} error${count === 1 ? '' : 's'} found`);
 }
 
-function formatStats(ctx: CliContext, stats: FileStats): void {
-  const entries = Object.entries(stats).sort(([a], [b]) => a.localeCompare(b));
-  const parts = entries.map(([ext, n]) => `${n} ${ext}`);
-  console.log(ctx.chalk.dim(`Scanned ${parts.join(', ')}`));
-}
+// --- Unified command functions ---
 
-export async function checkMdCmd(ctx: CliContext): Promise<void> {
-  const { errors, files } = await checkMd(ctx.latDir);
-  formatStats(ctx, files);
-  formatErrors(ctx, errors);
-  formatErrorCount(ctx, errors.length);
-  if (errors.length > 0) process.exit(1);
-  console.log(ctx.chalk.green('md: All links OK'));
-}
-
-export async function checkCodeRefsCmd(ctx: CliContext): Promise<void> {
-  const { errors, files } = await checkCodeRefs(ctx.latDir);
-  formatStats(ctx, files);
-  formatErrors(ctx, errors);
-  formatErrorCount(ctx, errors.length);
-  if (errors.length > 0) process.exit(1);
-  console.log(ctx.chalk.green('code-refs: All references OK'));
-}
-
-export async function checkIndexCmd(ctx: CliContext): Promise<void> {
-  const errors = await checkIndex(ctx.latDir);
-  formatIndexErrors(ctx, errors);
-  formatErrorCount(ctx, errors.length);
-  if (errors.length > 0) process.exit(1);
-  console.log(ctx.chalk.green('index: All directory index files OK'));
-}
-
-export async function checkAllCmd(ctx: CliContext): Promise<void> {
+export async function checkAllCommand(ctx: CmdContext): Promise<CmdResult> {
   const md = await checkMd(ctx.latDir);
   const code = await checkCodeRefs(ctx.latDir);
   const indexErrors = await checkIndex(ctx.latDir);
+  const sectionErrors = await checkSections(ctx.latDir);
 
   const allErrors = [...md.errors, ...code.errors];
   const allFiles: FileStats = { ...md.files };
@@ -446,14 +505,45 @@ export async function checkAllCmd(ctx: CliContext): Promise<void> {
     allFiles[ext] = (allFiles[ext] || 0) + n;
   }
 
-  formatStats(ctx, allFiles);
-  formatErrors(ctx, allErrors);
-  formatIndexErrors(ctx, indexErrors, allErrors.length);
+  const s = ctx.styler;
+  const lines: string[] = [formatFileStats(allFiles, s)];
 
-  const totalErrors = allErrors.length + indexErrors.length;
-  formatErrorCount(ctx, totalErrors);
-  if (totalErrors > 0) process.exit(1);
-  console.log(ctx.chalk.green('All checks passed'));
+  // Init version warning first — user should fix setup before addressing errors
+  const storedVersion = readInitVersion(ctx.latDir);
+  if (storedVersion === null) {
+    lines.push(
+      '',
+      s.yellow('Warning:') +
+        ' No init version recorded — run ' +
+        s.cyan('lat init') +
+        ' to set up agent hooks and configuration.',
+    );
+  } else if (storedVersion < INIT_VERSION) {
+    lines.push(
+      '',
+      s.yellow('Warning:') +
+        ' Your setup is outdated (v' +
+        storedVersion +
+        ' → v' +
+        INIT_VERSION +
+        '). Re-run ' +
+        s.cyan('lat init') +
+        ' to update agent hooks and configuration.',
+    );
+  }
+
+  lines.push(...formatCheckErrors(allErrors, s));
+  lines.push(...formatCheckIndexErrors(indexErrors, s));
+  lines.push(...formatCheckErrors(sectionErrors, s));
+
+  const totalErrors =
+    allErrors.length + indexErrors.length + sectionErrors.length;
+  if (totalErrors > 0) {
+    lines.push(formatErrorCount(totalErrors, s));
+    return { output: lines.join('\n'), isError: true };
+  }
+
+  lines.push(s.green('All checks passed'));
 
   const { getLlmKey } = await import('../config.js');
   let hasKey = false;
@@ -463,12 +553,82 @@ export async function checkAllCmd(ctx: CliContext): Promise<void> {
     // key resolution failed (e.g. empty file) — treat as missing
   }
   if (!hasKey) {
-    console.log(
-      ctx.chalk.yellow('Warning:') +
+    lines.push(
+      s.yellow('Warning:') +
         ' No LLM key found — semantic search (lat search) will not work.' +
         ' Provide a key via LAT_LLM_KEY, LAT_LLM_KEY_FILE, LAT_LLM_KEY_HELPER, or run ' +
-        ctx.chalk.cyan('lat init') +
+        s.cyan('lat init') +
         ' to configure.',
     );
   }
+
+  return { output: lines.join('\n') };
+}
+
+export async function checkMdCommand(ctx: CmdContext): Promise<CmdResult> {
+  const { errors, files } = await checkMd(ctx.latDir);
+  const s = ctx.styler;
+  const lines: string[] = [formatFileStats(files, s)];
+
+  lines.push(...formatCheckErrors(errors, s));
+
+  if (errors.length > 0) {
+    lines.push(formatErrorCount(errors.length, s));
+    return { output: lines.join('\n'), isError: true };
+  }
+
+  lines.push(s.green('md: All links OK'));
+  return { output: lines.join('\n') };
+}
+
+export async function checkCodeRefsCommand(
+  ctx: CmdContext,
+): Promise<CmdResult> {
+  const { errors, files } = await checkCodeRefs(ctx.latDir);
+  const s = ctx.styler;
+  const lines: string[] = [formatFileStats(files, s)];
+
+  lines.push(...formatCheckErrors(errors, s));
+
+  if (errors.length > 0) {
+    lines.push(formatErrorCount(errors.length, s));
+    return { output: lines.join('\n'), isError: true };
+  }
+
+  lines.push(s.green('code-refs: All references OK'));
+  return { output: lines.join('\n') };
+}
+
+export async function checkIndexCommand(ctx: CmdContext): Promise<CmdResult> {
+  const errors = await checkIndex(ctx.latDir);
+  const s = ctx.styler;
+  const lines: string[] = [];
+
+  lines.push(...formatCheckIndexErrors(errors, s));
+
+  if (errors.length > 0) {
+    lines.push(formatErrorCount(errors.length, s));
+    return { output: lines.join('\n'), isError: true };
+  }
+
+  lines.push(s.green('index: All directory index files OK'));
+  return { output: lines.join('\n') };
+}
+
+export async function checkSectionsCommand(
+  ctx: CmdContext,
+): Promise<CmdResult> {
+  const errors = await checkSections(ctx.latDir);
+  const s = ctx.styler;
+  const lines: string[] = [];
+
+  lines.push(...formatCheckErrors(errors, s));
+
+  if (errors.length > 0) {
+    lines.push(formatErrorCount(errors.length, s));
+    return { output: lines.join('\n'), isError: true };
+  }
+
+  lines.push(s.green('sections: All sections have valid leading paragraphs'));
+  return { output: lines.join('\n') };
 }

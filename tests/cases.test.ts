@@ -13,7 +13,13 @@ import {
   resolveRef,
 } from '../src/lattice.js';
 import { formatSectionPreview } from '../src/format.js';
-import { checkMd, checkCodeRefs, checkIndex } from '../src/cli/check.js';
+import { plainStyler, type CmdContext } from '../src/context.js';
+import {
+  checkMd,
+  checkCodeRefs,
+  checkIndex,
+  checkSections,
+} from '../src/cli/check.js';
 import { scanCodeRefs } from '../src/code-refs.js';
 import { findRefs } from '../src/cli/refs.js';
 import { getSection, formatSectionOutput } from '../src/cli/section.js';
@@ -31,6 +37,15 @@ function latDir(name: string): string {
   return join(casesDir, name, 'lat.md');
 }
 
+function testCtx(name: string): CmdContext {
+  return {
+    latDir: latDir(name),
+    projectRoot: caseDir(name),
+    styler: plainStyler,
+    mode: 'cli',
+  };
+}
+
 // --- basic-project ---
 
 describe('basic-project', () => {
@@ -44,15 +59,17 @@ describe('basic-project', () => {
 
     expect(ids).toContain('lat.md/dev-process#Dev Process');
     expect(ids).toContain('lat.md/dev-process#Dev Process#Testing');
-    expect(ids).toContain('lat.md/dev-process#Dev Process#Testing#Running Tests');
+    expect(ids).toContain(
+      'lat.md/dev-process#Dev Process#Testing#Running Tests',
+    );
     expect(ids).toContain('lat.md/dev-process#Dev Process#Formatting');
     expect(ids).toContain('lat.md/notes#Notes');
     expect(ids).toContain('lat.md/notes#Notes#First Topic');
     expect(ids).toContain('lat.md/notes#Notes#Second Topic');
   });
 
-  // @lat: [[section-parsing#Populates position and body fields]]
-  it('populates startLine, endLine, and body', async () => {
+  // @lat: [[section-parsing#Populates position and firstParagraph fields]]
+  it('populates startLine, endLine, and firstParagraph', async () => {
     const sections = await loadAllSections(lat);
     const flat = flattenSections(sections);
 
@@ -61,29 +78,31 @@ describe('basic-project', () => {
     )!;
     expect(running.startLine).toBe(5);
     expect(running.endLine).toBe(8);
-    expect(running.body).toBe('Run tests with vitest.');
+    expect(running.firstParagraph).toBe('Run tests with vitest.');
 
     const formatting = flat.find(
       (s) => s.id === 'lat.md/dev-process#Dev Process#Formatting',
     )!;
     expect(formatting.startLine).toBe(9);
-    expect(formatting.body).toBe('Prettier all the things.');
+    expect(formatting.firstParagraph).toBe('Prettier all the things.');
   });
 
-  // @lat: [[section-parsing#Renders inline code in body]]
-  it('renders inline code in body text', async () => {
+  // @lat: [[section-parsing#Renders inline code in firstParagraph]]
+  it('renders inline code in firstParagraph', async () => {
     const sections = await loadAllSections(lat);
     const flat = flattenSections(sections);
     const first = flat.find((s) => s.id === 'lat.md/notes#Notes#First Topic')!;
-    expect(first.body).toBe('Run `vitest` to test.');
+    expect(first.firstParagraph).toBe('Run `vitest` to test.');
   });
 
-  // @lat: [[section-parsing#Renders wiki links in body]]
-  it('renders wiki links in body text', async () => {
+  // @lat: [[section-parsing#Renders wiki links in firstParagraph]]
+  it('renders wiki links in firstParagraph', async () => {
     const sections = await loadAllSections(lat);
     const flat = flattenSections(sections);
-    const second = flat.find((s) => s.id === 'lat.md/notes#Notes#Second Topic')!;
-    expect(second.body).toBe('See [[dev-process#Testing]] for more.');
+    const second = flat.find(
+      (s) => s.id === 'lat.md/notes#Notes#Second Topic',
+    )!;
+    expect(second.firstParagraph).toBe('See [[dev-process#Testing]] for more.');
   });
 
   // @lat: [[ref-extraction#Extracts wiki link references]]
@@ -110,8 +129,8 @@ describe('basic-project', () => {
     expect(refs).toHaveLength(0);
   });
 
-  // @lat: [[section-preview#Formats section with body]]
-  it('formats section preview with body', async () => {
+  // @lat: [[section-preview#Formats section with firstParagraph]]
+  it('formats section preview with firstParagraph', async () => {
     const sections = await loadAllSections(lat);
     const flat = flattenSections(sections);
     const running = flat.find(
@@ -119,7 +138,7 @@ describe('basic-project', () => {
     )!;
 
     const output = stripAnsi(
-      formatSectionPreview(running, caseDir('basic-project')),
+      formatSectionPreview(testCtx('basic-project'), running),
     );
     const lines = output.split('\n');
     expect(lines[0]).toBe(
@@ -130,8 +149,8 @@ describe('basic-project', () => {
     expect(lines[3]).toContain('> Run tests with vitest.');
   });
 
-  // @lat: [[section-preview#Formats section without body]]
-  it('formats section preview without body', async () => {
+  // @lat: [[section-preview#Formats section without firstParagraph]]
+  it('formats section preview without firstParagraph', async () => {
     const sections = await loadAllSections(lat);
     const flat = flattenSections(sections);
     const testing = flat.find(
@@ -139,7 +158,7 @@ describe('basic-project', () => {
     )!;
 
     const output = stripAnsi(
-      formatSectionPreview(testing, caseDir('basic-project')),
+      formatSectionPreview(testCtx('basic-project'), testing),
     );
     const lines = output.split('\n');
     expect(lines[0]).toBe(
@@ -263,22 +282,25 @@ describe('basic-project', () => {
   });
 });
 
-// --- prompt ---
+// --- expand ---
 
-describe('prompt', () => {
+describe('expand', () => {
   const root = caseDir('basic-project');
 
-  function runPrompt(text: string): string {
-    return execSync(`node ${join(import.meta.dirname, '..', 'dist', 'src', 'cli', 'index.js')} prompt ${JSON.stringify(text)}`, {
-      cwd: root,
-      encoding: 'utf-8',
-      env: process.env,
-    });
+  function runExpand(text: string): string {
+    return execSync(
+      `node ${join(import.meta.dirname, '..', 'dist', 'src', 'cli', 'index.js')} expand ${JSON.stringify(text)}`,
+      {
+        cwd: root,
+        encoding: 'utf-8',
+        env: process.env,
+      },
+    );
   }
 
-  // @lat: [[tests/prompt#Resolves exact ref with context]]
+  // @lat: [[tests/expand#Resolves exact ref with context]]
   it('resolves exact ref with "is referring to" context', () => {
-    const output = runPrompt('see [[dev-process#Testing]]');
+    const output = runExpand('see [[dev-process#Testing]]');
     expect(output).toContain('see [[lat.md/dev-process#Dev Process#Testing]]');
     expect(output).toContain('<lat-context>');
     expect(output).toContain('`[[dev-process#Testing]]` is referring to:');
@@ -286,9 +308,9 @@ describe('prompt', () => {
     expect(output).toContain('dev-process.md:');
   });
 
-  // @lat: [[tests/prompt#Resolves fuzzy ref with alternatives]]
+  // @lat: [[tests/expand#Resolves fuzzy ref with alternatives]]
   it('resolves fuzzy ref with "might be referring to" context', () => {
-    const output = runPrompt('fix [[Runing Tests]]');
+    const output = runExpand('fix [[Runing Tests]]');
     expect(output).toContain(
       '[[lat.md/dev-process#Dev Process#Testing#Running Tests]]',
     );
@@ -296,9 +318,9 @@ describe('prompt', () => {
     expect(output).toContain('fuzzy match');
   });
 
-  // @lat: [[tests/prompt#Passes through text without refs]]
+  // @lat: [[tests/expand#Passes through text without refs]]
   it('passes through text without refs unchanged', () => {
-    const output = runPrompt('no refs here');
+    const output = runExpand('no refs here');
     expect(output).toBe('no refs here');
     expect(output).not.toContain('<lat-context>');
   });
@@ -330,7 +352,9 @@ describe('valid-links', () => {
 describe('error-dangling-code-ref', () => {
   // @lat: [[check-code-refs#Detects dangling code ref]]
   it('check code-refs detects @lat pointing to nonexistent section', async () => {
-    const { errors, files } = await checkCodeRefs(latDir('error-dangling-code-ref'));
+    const { errors, files } = await checkCodeRefs(
+      latDir('error-dangling-code-ref'),
+    );
     const dangling = errors.filter((e) => e.target === 'Alpha#Nonexistent');
     expect(dangling).toHaveLength(1);
     expect(dangling[0].message).toContain('no matching section found');
@@ -385,7 +409,9 @@ describe('gitignore-filtering', () => {
 describe('error-require-code-mention', () => {
   // @lat: [[check-code-refs#Detects missing code mention for required file]]
   it('check code-refs detects uncovered leaf sections', async () => {
-    const { errors } = await checkCodeRefs(latDir('error-require-code-mention'));
+    const { errors } = await checkCodeRefs(
+      latDir('error-require-code-mention'),
+    );
     const uncovered = errors.filter((e) =>
       e.message.includes('requires a code mention'),
     );
@@ -543,26 +569,20 @@ describe('short-ref', () => {
 
   // @lat: [[ref-resolution#Short ref refs finds md references]]
   it('findRefs with short query finds md wiki links', async () => {
-    const projectRoot = caseDir('short-ref');
-    const result = await findRefs(lat, projectRoot, 'setup#Install', 'md');
+    const result = await findRefs(testCtx('short-ref'), 'setup#Install', 'md');
     expect(result.kind).toBe('found');
     if (result.kind !== 'found') return;
-    expect(result.target.id).toBe(
-      'lat.md/guides/setup#Setup#Install',
-    );
+    expect(result.target.id).toBe('lat.md/guides/setup#Setup#Install');
     const ids = result.mdRefs.map((r) => r.section.id);
     expect(ids).toContain('lat.md/links#Links');
   });
 
   // @lat: [[ref-resolution#Short ref refs finds code references]]
   it('findRefs with short query finds code refs', async () => {
-    const projectRoot = caseDir('short-ref');
-    const result = await findRefs(lat, projectRoot, 'setup#Configure', 'code');
+    const result = await findRefs(testCtx('short-ref'), 'setup#Configure', 'code');
     expect(result.kind).toBe('found');
     if (result.kind !== 'found') return;
-    expect(result.target.id).toBe(
-      'lat.md/guides/setup#Setup#Configure',
-    );
+    expect(result.target.id).toBe('lat.md/guides/setup#Setup#Configure');
     expect(result.codeRefs).toHaveLength(1);
     expect(result.codeRefs[0]).toContain('app.ts');
   });
@@ -595,10 +615,8 @@ describe('full-ref', () => {
 
   // @lat: [[ref-resolution#Full ref refs finds md references]]
   it('findRefs with full query finds md wiki links', async () => {
-    const projectRoot = caseDir('full-ref');
     const result = await findRefs(
-      lat,
-      projectRoot,
+      testCtx('full-ref'),
       'lat.md/guides/setup#Setup#Install',
       'md',
     );
@@ -610,10 +628,8 @@ describe('full-ref', () => {
 
   // @lat: [[ref-resolution#Full ref refs finds code references]]
   it('findRefs with full query finds code refs', async () => {
-    const projectRoot = caseDir('full-ref');
     const result = await findRefs(
-      lat,
-      projectRoot,
+      testCtx('full-ref'),
       'lat.md/guides/setup#Setup#Configure',
       'code',
     );
@@ -716,6 +732,20 @@ describe('source-ref-ts-valid', () => {
   });
 });
 
+describe('source-ref-js-valid', () => {
+  it('resolves JS function, class, method, and const refs without errors', async () => {
+    const { errors } = await checkMd(latDir('source-ref-js-valid'));
+    expect(errors).toHaveLength(0);
+  });
+});
+
+describe('source-ref-jsx-valid', () => {
+  it('resolves JSX function, class, method, component const, and const refs without errors', async () => {
+    const { errors } = await checkMd(latDir('source-ref-jsx-valid'));
+    expect(errors).toHaveLength(0);
+  });
+});
+
 describe('source-ref-py-valid', () => {
   it('resolves Python function, class, method, and variable refs without errors', async () => {
     // docs.md links: greet (function), Greeter (class),
@@ -788,24 +818,142 @@ describe('error-source-ref-bad-file', () => {
   });
 });
 
+describe('source-ref-rs-valid', () => {
+  it('resolves Rust function, struct, trait, method, const, and enum refs without errors', async () => {
+    // docs.md links: greet (fn), Greeter (struct), Greeter#greet (method),
+    // Greeting (trait), DEFAULT_NAME (const), Color (enum)
+    const { errors } = await checkMd(latDir('source-ref-rs-valid'));
+    expect(errors).toHaveLength(0);
+  });
+});
+
+describe('source-ref-go-valid', () => {
+  it('resolves Go function, struct, method, interface, and const refs without errors', async () => {
+    // docs.md links: Greet (func), Greeter (struct), Greeter#Greet (method),
+    // NewGreeter (func), Greeting (interface), DefaultName (const)
+    const { errors } = await checkMd(latDir('source-ref-go-valid'));
+    expect(errors).toHaveLength(0);
+  });
+});
+
+describe('error-source-ref-rs-missing', () => {
+  it('check md reports all missing Rust symbols', async () => {
+    const { errors } = await checkMd(latDir('error-source-ref-rs-missing'));
+    expect(errors).toHaveLength(4);
+
+    const byTarget = new Map(errors.map((e) => [e.target, e]));
+
+    const fn = byTarget.get('src/app.rs#nonexistent')!;
+    expect(fn).toBeDefined();
+    expect(fn.message).toContain('symbol "nonexistent" not found');
+
+    const st = byTarget.get('src/app.rs#MissingStruct')!;
+    expect(st).toBeDefined();
+    expect(st.message).toContain('symbol "MissingStruct" not found');
+
+    const cnst = byTarget.get('src/app.rs#MISSING_CONST')!;
+    expect(cnst).toBeDefined();
+    expect(cnst.message).toContain('symbol "MISSING_CONST" not found');
+
+    const method = byTarget.get('src/app.rs#Greeter#missing_method')!;
+    expect(method).toBeDefined();
+    expect(method.message).toContain(
+      'symbol "Greeter#missing_method" not found',
+    );
+  });
+});
+
+describe('error-source-ref-go-missing', () => {
+  it('check md reports all missing Go symbols', async () => {
+    const { errors } = await checkMd(latDir('error-source-ref-go-missing'));
+    expect(errors).toHaveLength(4);
+
+    const byTarget = new Map(errors.map((e) => [e.target, e]));
+
+    const fn = byTarget.get('src/app.go#nonexistent')!;
+    expect(fn).toBeDefined();
+    expect(fn.message).toContain('symbol "nonexistent" not found');
+
+    const st = byTarget.get('src/app.go#MissingStruct')!;
+    expect(st).toBeDefined();
+    expect(st.message).toContain('symbol "MissingStruct" not found');
+
+    const cnst = byTarget.get('src/app.go#MISSING_CONST')!;
+    expect(cnst).toBeDefined();
+    expect(cnst.message).toContain('symbol "MISSING_CONST" not found');
+
+    const method = byTarget.get('src/app.go#Greeter#MissingMethod')!;
+    expect(method).toBeDefined();
+    expect(method.message).toContain(
+      'symbol "Greeter#MissingMethod" not found',
+    );
+  });
+});
+
+describe('source-ref-c-valid', () => {
+  it('resolves C function, struct, enum, typedef, define, and variable refs without errors', async () => {
+    // docs.md links across .c and .h: greet (function), Greeter (struct),
+    // Color (enum), ErrorCode (typedef), MAX_SIZE (define), DEFAULT_NAME (variable)
+    const { errors } = await checkMd(latDir('source-ref-c-valid'));
+    expect(errors).toHaveLength(0);
+  });
+});
+
+describe('error-source-ref-c-missing', () => {
+  it('check md reports all missing C symbols', async () => {
+    const { errors } = await checkMd(latDir('error-source-ref-c-missing'));
+    expect(errors).toHaveLength(4);
+
+    const byTarget = new Map(errors.map((e) => [e.target, e]));
+
+    const fn = byTarget.get('src/app.c#nonexistent')!;
+    expect(fn).toBeDefined();
+    expect(fn.message).toContain('symbol "nonexistent" not found');
+
+    const st = byTarget.get('src/app.c#MissingStruct')!;
+    expect(st).toBeDefined();
+    expect(st.message).toContain('symbol "MissingStruct" not found');
+
+    const def = byTarget.get('src/app.c#MISSING_DEFINE')!;
+    expect(def).toBeDefined();
+    expect(def.message).toContain('symbol "MISSING_DEFINE" not found');
+
+    const v = byTarget.get('src/app.c#MISSING_VAR')!;
+    expect(v).toBeDefined();
+    expect(v.message).toContain('symbol "MISSING_VAR" not found');
+  });
+});
+
+describe('error-source-ref-unsupported-ext', () => {
+  it('check md reports unsupported extension with list of supported ones', async () => {
+    const { errors } = await checkMd(
+      latDir('error-source-ref-unsupported-ext'),
+    );
+    expect(errors).toHaveLength(1);
+    expect(errors[0].target).toBe('src/app.blah#spam');
+    expect(errors[0].message).toContain('unsupported file extension ".blah"');
+    expect(errors[0].message).toContain('Supported:');
+    expect(errors[0].message).toContain('.ts');
+    expect(errors[0].message).toContain('.rs');
+    expect(errors[0].message).toContain('.go');
+  });
+});
+
 // --- getSection ---
 
 describe('getSection', () => {
   // @lat: [[tests/section#Nonexistent section returns no-match]]
   it('returns no-match for nonexistent section', async () => {
-    const lat = latDir('basic-project');
-    const projectRoot = caseDir('basic-project');
-    const result = await getSection(lat, projectRoot, 'nonexistent-xyz');
+    const ctx = testCtx('basic-project');
+    const result = await getSection(ctx, 'nonexistent-xyz');
     expect(result.kind).toBe('no-match');
   });
 
   // @lat: [[tests/section#Full id resolves to section]]
   it('finds section by full id', async () => {
-    const lat = latDir('basic-project');
-    const projectRoot = caseDir('basic-project');
+    const ctx = testCtx('basic-project');
     const result = await getSection(
-      lat,
-      projectRoot,
+      ctx,
       'lat.md/dev-process#Dev Process#Testing',
     );
     expect(result.kind).toBe('found');
@@ -816,9 +964,8 @@ describe('getSection', () => {
 
   // @lat: [[tests/section#Short id resolves to section]]
   it('finds section by short id', async () => {
-    const lat = latDir('short-ref');
-    const projectRoot = caseDir('short-ref');
-    const result = await getSection(lat, projectRoot, 'setup#Install');
+    const ctx = testCtx('short-ref');
+    const result = await getSection(ctx, 'setup#Install');
     expect(result.kind).toBe('found');
     if (result.kind !== 'found') return;
     expect(result.section.id).toBe('lat.md/guides/setup#Setup#Install');
@@ -826,11 +973,9 @@ describe('getSection', () => {
 
   // @lat: [[tests/section#Section with no refs or links]]
   it('returns empty refs for section with no refs or links', async () => {
-    const lat = latDir('basic-project');
-    const projectRoot = caseDir('basic-project');
+    const ctx = testCtx('basic-project');
     const result = await getSection(
-      lat,
-      projectRoot,
+      ctx,
       'lat.md/dev-process#Dev Process#Formatting',
     );
     expect(result.kind).toBe('found');
@@ -841,13 +986,8 @@ describe('getSection', () => {
 
   // @lat: [[tests/section#Section with outgoing refs only]]
   it('returns outgoing refs for section that links to others', async () => {
-    const lat = latDir('basic-project');
-    const projectRoot = caseDir('basic-project');
-    const result = await getSection(
-      lat,
-      projectRoot,
-      'lat.md/notes#Notes#Second Topic',
-    );
+    const ctx = testCtx('basic-project');
+    const result = await getSection(ctx, 'lat.md/notes#Notes#Second Topic');
     expect(result.kind).toBe('found');
     if (result.kind !== 'found') return;
     expect(result.outgoingRefs.length).toBeGreaterThan(0);
@@ -859,11 +999,9 @@ describe('getSection', () => {
 
   // @lat: [[tests/section#Section with incoming refs only]]
   it('returns incoming refs for section referenced by others', async () => {
-    const lat = latDir('basic-project');
-    const projectRoot = caseDir('basic-project');
+    const ctx = testCtx('basic-project');
     const result = await getSection(
-      lat,
-      projectRoot,
+      ctx,
       'lat.md/dev-process#Dev Process#Testing',
     );
     expect(result.kind).toBe('found');
@@ -876,42 +1014,85 @@ describe('getSection', () => {
 
   // @lat: [[tests/section#Section with both outgoing and incoming refs]]
   it('returns both outgoing and incoming refs', async () => {
-    const lat = latDir('short-ref');
-    const projectRoot = caseDir('short-ref');
-    // setup#Install is referenced by links.md, and links.md references setup#Install
-    // So links#Links has outgoing (to setup#Install) and is referenced by nobody
-    // setup#Setup#Install has incoming (from links#Links) and no outgoing
-    // We need a section with both — let's check if setup#Setup has both
-    // Actually, let's use a fixture where this is true.
-    // In short-ref: links#Links references setup#Install
-    // setup#Install has incoming from links#Links but no outgoing
-    // To get both, we'd need a section that both references and is referenced.
-    // basic-project doesn't have that either. Let's verify the formatted output instead.
-    const result = await getSection(lat, projectRoot, 'setup#Install');
+    const ctx = testCtx('short-ref');
+    const result = await getSection(ctx, 'setup#Install');
     expect(result.kind).toBe('found');
     if (result.kind !== 'found') return;
     expect(result.incomingRefs.length).toBeGreaterThan(0);
     // Verify formatSectionOutput includes incoming
-    const output = formatSectionOutput(result, projectRoot);
-    expect(output).toContain('**Referenced by:**');
+    const output = formatSectionOutput(ctx, result);
+    expect(output).toContain('Referenced by:');
     expect(output).toContain('lat.md/links#Links');
   });
 
   // @lat: [[tests/section#formatSectionOutput includes all parts]]
   it('formatSectionOutput includes content and refs', async () => {
-    const lat = latDir('basic-project');
-    const projectRoot = caseDir('basic-project');
-    const result = await getSection(
-      lat,
-      projectRoot,
-      'lat.md/notes#Notes#Second Topic',
-    );
+    const ctx = testCtx('basic-project');
+    const result = await getSection(ctx, 'lat.md/notes#Notes#Second Topic');
     expect(result.kind).toBe('found');
     if (result.kind !== 'found') return;
-    const output = formatSectionOutput(result, projectRoot);
+    const output = formatSectionOutput(ctx, result);
     expect(output).toContain('[[lat.md/notes#Notes#Second Topic]]');
     expect(output).toContain('See [[dev-process#Testing]]');
-    expect(output).toContain('**This section references:**');
+    expect(output).toContain('This section references:');
     expect(output).toContain('lat.md/dev-process#Dev Process#Testing');
+  });
+});
+
+// --- check sections ---
+
+describe('error-missing-body', () => {
+  // @lat: [[check-sections#Detects missing leading paragraph]]
+  it('check sections detects sections without a leading paragraph', async () => {
+    const errors = await checkSections(latDir('error-missing-body'));
+    const missing = errors.filter((e) =>
+      e.message.includes('has no leading paragraph'),
+    );
+    expect(missing).toHaveLength(2);
+    expect(missing[0].target).toBe('lat.md/notes#Notes');
+    expect(missing[1].target).toBe('lat.md/notes#Notes#First');
+  });
+});
+
+describe('error-long-body', () => {
+  // @lat: [[check-sections#Detects overly long leading paragraph]]
+  it('check sections detects overly long leading paragraph', async () => {
+    const errors = await checkSections(latDir('error-long-body'));
+    expect(errors).toHaveLength(1);
+    expect(errors[0].target).toBe('lat.md/notes#Notes');
+    expect(errors[0].message).toContain('384 characters');
+    expect(errors[0].message).toContain('max 250');
+  });
+
+  // @lat: [[check-sections#Excludes wiki link content from character count]]
+  it('excludes wiki link content from character count', async () => {
+    const errors = await checkSections(latDir('error-long-body'));
+    const linkSection = errors.find(
+      (e) => e.target === 'lat.md/notes#Notes#With Links',
+    );
+    expect(linkSection).toBeUndefined();
+  });
+});
+
+// --- non-md file in lat.md/ ---
+
+describe('error-non-md-file', () => {
+  // @lat: [[check-index#Detects non-markdown file]]
+  it('reports non-.md file as error', async () => {
+    const errors = await checkIndex(latDir('error-non-md-file'));
+    const nonMd = errors.filter((e) => e.message.includes('not a .md file'));
+    expect(nonMd).toHaveLength(1);
+    expect(nonMd[0].message).toContain('README');
+  });
+
+  // @lat: [[check-index#Non-markdown files excluded from index listing]]
+  it('does not include non-.md file in missing index entries', async () => {
+    const errors = await checkIndex(latDir('error-non-md-file'));
+    const indexErrors = errors.filter(
+      (e) => e.message.includes('missing entries') || e.snippet,
+    );
+    for (const err of indexErrors) {
+      expect(err.snippet ?? '').not.toContain('README');
+    }
   });
 });

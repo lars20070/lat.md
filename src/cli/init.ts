@@ -16,18 +16,25 @@ import {
   readConfig,
   writeConfig,
 } from '../config.js';
+import { writeInitMeta, readFileHash, contentHash } from '../init-version.js';
 
 async function confirm(
   rl: ReturnType<typeof createInterface>,
   message: string,
 ): Promise<boolean> {
-  try {
-    const answer = await rl.question(`${message} ${chalk.dim('[Y/n]')} `);
-    return answer.trim().toLowerCase() !== 'n';
-  } catch {
-    // Ctrl+C or closed stdin — abort
-    console.log('');
-    process.exit(130);
+  while (true) {
+    let answer: string;
+    try {
+      answer = await rl.question(`${message} ${chalk.dim('[Y/n]')} `);
+    } catch {
+      // Ctrl+C or closed stdin — abort
+      console.log('');
+      process.exit(130);
+    }
+    const val = answer.trim().toLowerCase();
+    if (val === '' || val === 'y' || val === 'yes') return true;
+    if (val === 'n' || val === 'no') return false;
+    console.log(chalk.yellow('  Please answer Y or n.'));
   }
 }
 
@@ -51,23 +58,25 @@ function latHookCommand(event: string): string {
   return `${resolve(process.argv[1])} hook claude ${event}`;
 }
 
-function hasLatHook(settingsPath: string, event: string): boolean {
-  if (!existsSync(settingsPath)) return false;
-  try {
-    const settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
-    const entries = settings?.hooks?.[event];
-    if (!Array.isArray(entries)) return false;
-    return entries.some((entry: { hooks?: { command?: string }[] }) =>
-      entry.hooks?.some(
-        (h) => h.command?.includes('lat') && h.command?.includes(event),
-      ),
-    );
-  } catch {
-    return false;
-  }
+type HookEntry = { hooks?: { type?: string; command?: string }[] };
+
+/** True if any command in this entry looks like it was installed by lat. */
+function isLatHookEntry(entry: HookEntry): boolean {
+  const bin = resolve(process.argv[1]);
+  return (
+    entry.hooks?.some(
+      (h) =>
+        typeof h.command === 'string' &&
+        (/\blat\b/.test(h.command) || h.command.startsWith(bin + ' ')),
+    ) ?? false
+  );
 }
 
-function addLatHooks(settingsPath: string): void {
+/**
+ * Remove all lat-owned hook entries from settings, then add fresh ones.
+ * Preserves any non-lat hooks the user may have configured.
+ */
+function syncLatHooks(settingsPath: string): void {
   let settings: Record<string, unknown> = {};
   if (existsSync(settingsPath)) {
     const raw = readFileSync(settingsPath, 'utf-8');
@@ -83,6 +92,20 @@ function addLatHooks(settingsPath: string): void {
   }
   const hooks = settings.hooks as Record<string, unknown>;
 
+  // Strip lat-owned entries from ALL event types (cleans up stale events too)
+  for (const [event, entries] of Object.entries(hooks)) {
+    if (!Array.isArray(entries)) continue;
+    const filtered = entries.filter(
+      (entry: HookEntry) => !isLatHookEntry(entry),
+    );
+    if (filtered.length > 0) {
+      hooks[event] = filtered;
+    } else {
+      delete hooks[event];
+    }
+  }
+
+  // Add fresh hooks for current events
   for (const event of ['UserPromptSubmit', 'Stop']) {
     if (!Array.isArray(hooks[event])) {
       hooks[event] = [];
@@ -153,7 +176,10 @@ function hasMcpServer(configPath: string, key: string): boolean {
   try {
     const cfg = JSON.parse(readFileSync(configPath, 'utf-8'));
     return !!cfg?.[key]?.lat;
-  } catch {
+  } catch (err) {
+    process.stderr.write(
+      `Warning: failed to parse ${configPath}: ${(err as Error).message}\n`,
+    );
     return false;
   }
 }
@@ -176,33 +202,113 @@ function addMcpServer(configPath: string, key: string): void {
   writeFileSync(configPath, JSON.stringify(cfg, null, 2) + '\n');
 }
 
+// ── Template file helpers ─────────────────────────────────────────────
+
+/**
+ * Write a template-generated file, using stored hashes to decide whether
+ * to overwrite or prompt the user about local modifications.
+ *
+ * Returns the hash of the written content, or null if the file was skipped.
+ */
+async function writeTemplateFile(
+  root: string,
+  latDir: string,
+  relPath: string,
+  template: string,
+  genTarget: string,
+  label: string,
+  indent: string,
+  ask: (message: string) => Promise<boolean>,
+): Promise<string | null> {
+  const absPath = join(root, relPath);
+  const templateHash = contentHash(template);
+
+  if (!existsSync(absPath)) {
+    mkdirSync(join(absPath, '..'), { recursive: true });
+    writeFileSync(absPath, template);
+    console.log(chalk.green(`${indent}Created ${label}`));
+    return templateHash;
+  }
+
+  // File exists — check if user has modified it
+  const currentContent = readFileSync(absPath, 'utf-8');
+  const currentHash = contentHash(currentContent);
+  const storedHash = readFileHash(latDir, relPath);
+
+  if (currentHash === templateHash) {
+    // Already matches the latest template
+    console.log(chalk.green(`${indent}${label}`) + ' already up to date');
+    return templateHash;
+  }
+
+  if (storedHash && currentHash === storedHash) {
+    // Unmodified by user — safe to overwrite with new template
+    writeFileSync(absPath, template);
+    console.log(chalk.green(`${indent}Updated ${label}`));
+    return templateHash;
+  }
+
+  // User has modified the file — ask whether to overwrite
+  console.log(
+    chalk.yellow(`${indent}${label}`) +
+      ' exists and may contain your own content.',
+  );
+  if (await ask(`${indent}Overwrite with latest lat template?`)) {
+    writeFileSync(absPath, template);
+    console.log(chalk.green(`${indent}Updated ${label}`));
+    return templateHash;
+  }
+
+  console.log(
+    chalk.dim(`${indent}Kept existing file.`) +
+      ' Run ' +
+      chalk.cyan(`lat gen ${genTarget}`) +
+      ' to see the latest template.',
+  );
+  return null;
+}
+
 // ── Per-agent setup ──────────────────────────────────────────────────
 
-function setupAgentsMd(root: string, template: string): void {
-  const agentsPath = join(root, 'AGENTS.md');
-  if (!existsSync(agentsPath)) {
-    writeFileSync(agentsPath, template);
-    console.log(chalk.green('Created AGENTS.md'));
-  } else {
-    console.log(chalk.green('AGENTS.md') + ' already exists');
-  }
+async function setupAgentsMd(
+  root: string,
+  latDir: string,
+  template: string,
+  hashes: Record<string, string>,
+  ask: (message: string) => Promise<boolean>,
+): Promise<void> {
+  const hash = await writeTemplateFile(
+    root,
+    latDir,
+    'AGENTS.md',
+    template,
+    'agents.md',
+    'AGENTS.md',
+    '',
+    ask,
+  );
+  if (hash) hashes['AGENTS.md'] = hash;
 }
 
 async function setupClaudeCode(
   root: string,
+  latDir: string,
   template: string,
-): Promise<string[]> {
-  const created: string[] = [];
-
+  hashes: Record<string, string>,
+  ask: (message: string) => Promise<boolean>,
+): Promise<void> {
   // CLAUDE.md — written directly (not a symlink)
-  const claudePath = join(root, 'CLAUDE.md');
-  if (!existsSync(claudePath)) {
-    writeFileSync(claudePath, template);
-    console.log(chalk.green('  Created CLAUDE.md'));
-    created.push('CLAUDE.md');
-  } else {
-    console.log(chalk.green('  CLAUDE.md') + ' already exists');
-  }
+  const hash = await writeTemplateFile(
+    root,
+    latDir,
+    'CLAUDE.md',
+    template,
+    'claude.md',
+    'CLAUDE.md',
+    '  ',
+    ask,
+  );
+  if (hash) hashes['CLAUDE.md'] = hash;
 
   // Hooks — UserPromptSubmit (lat.md reminders + [[ref]] expansion) and Stop (update reminder)
   console.log('');
@@ -216,18 +322,9 @@ async function setupClaudeCode(
   const claudeDir = join(root, '.claude');
   const settingsPath = join(claudeDir, 'settings.json');
 
-  const hasPromptHook = hasLatHook(settingsPath, 'UserPromptSubmit');
-  const hasStopHook = hasLatHook(settingsPath, 'Stop');
-
-  if (hasPromptHook && hasStopHook) {
-    console.log(chalk.green('  Hooks') + ' already configured');
-  } else {
-    mkdirSync(claudeDir, { recursive: true });
-    addLatHooks(settingsPath);
-    console.log(
-      chalk.green('  Hooks') + ' installed (UserPromptSubmit + Stop)',
-    );
-  }
+  mkdirSync(claudeDir, { recursive: true });
+  syncLatHooks(settingsPath);
+  console.log(chalk.green('  Hooks') + ' synced (UserPromptSubmit + Stop)');
 
   // Ensure .claude is gitignored (settings contain local absolute paths)
   ensureGitignored(root, '.claude');
@@ -251,29 +348,30 @@ async function setupClaudeCode(
   } else {
     addMcpServer(mcpPath, 'mcpServers');
     console.log(chalk.green('  MCP server') + ' registered in .mcp.json');
-    created.push('.mcp.json');
   }
 
   // Ensure .mcp.json is gitignored (it contains local absolute paths)
   ensureGitignored(root, '.mcp.json');
-
-  return created;
 }
 
-async function setupCursor(root: string): Promise<string[]> {
-  const created: string[] = [];
-
+async function setupCursor(
+  root: string,
+  latDir: string,
+  hashes: Record<string, string>,
+  ask: (message: string) => Promise<boolean>,
+): Promise<void> {
   // .cursor/rules/lat.md
-  const rulesDir = join(root, '.cursor', 'rules');
-  const rulesPath = join(rulesDir, 'lat.md');
-  if (!existsSync(rulesPath)) {
-    mkdirSync(rulesDir, { recursive: true });
-    writeFileSync(rulesPath, readCursorRulesTemplate());
-    console.log(chalk.green('  Rules') + ' created at .cursor/rules/lat.md');
-    created.push('.cursor/rules/lat.md');
-  } else {
-    console.log(chalk.green('  Rules') + ' already exist');
-  }
+  const hash = await writeTemplateFile(
+    root,
+    latDir,
+    '.cursor/rules/lat.md',
+    readCursorRulesTemplate(),
+    'cursor-rules.md',
+    'Rules (.cursor/rules/lat.md)',
+    '  ',
+    ask,
+  );
+  if (hash) hashes['.cursor/rules/lat.md'] = hash;
 
   // .cursor/mcp.json
   console.log('');
@@ -296,7 +394,6 @@ async function setupCursor(root: string): Promise<string[]> {
     console.log(
       chalk.green('  MCP server') + ' registered in .cursor/mcp.json',
     );
-    created.push('.cursor/mcp.json');
   }
 
   // Ensure .cursor/mcp.json is gitignored (it contains local absolute paths)
@@ -307,27 +404,26 @@ async function setupCursor(root: string): Promise<string[]> {
     chalk.yellow('  Note:') +
       ' Enable MCP in Cursor: Settings → Features → MCP → check "Enable MCP"',
   );
-
-  return created;
 }
 
-async function setupCopilot(root: string): Promise<string[]> {
-  const created: string[] = [];
-
+async function setupCopilot(
+  root: string,
+  latDir: string,
+  hashes: Record<string, string>,
+  ask: (message: string) => Promise<boolean>,
+): Promise<void> {
   // .github/copilot-instructions.md
-  const githubDir = join(root, '.github');
-  const instructionsPath = join(githubDir, 'copilot-instructions.md');
-  if (!existsSync(instructionsPath)) {
-    mkdirSync(githubDir, { recursive: true });
-    writeFileSync(instructionsPath, readAgentsTemplate());
-    console.log(
-      chalk.green('  Instructions') +
-        ' created at .github/copilot-instructions.md',
-    );
-    created.push('.github/copilot-instructions.md');
-  } else {
-    console.log(chalk.green('  Instructions') + ' already exist');
-  }
+  const hash = await writeTemplateFile(
+    root,
+    latDir,
+    '.github/copilot-instructions.md',
+    readAgentsTemplate(),
+    'agents.md',
+    'Instructions (.github/copilot-instructions.md)',
+    '  ',
+    ask,
+  );
+  if (hash) hashes['.github/copilot-instructions.md'] = hash;
 
   // .vscode/mcp.json
   console.log('');
@@ -350,10 +446,7 @@ async function setupCopilot(root: string): Promise<string[]> {
     console.log(
       chalk.green('  MCP server') + ' registered in .vscode/mcp.json',
     );
-    created.push('.vscode/mcp.json');
   }
-
-  return created;
 }
 
 // ── LLM key setup ───────────────────────────────────────────────────
@@ -361,6 +454,30 @@ async function setupCopilot(root: string): Promise<string[]> {
 async function setupLlmKey(
   rl: ReturnType<typeof createInterface> | null,
 ): Promise<void> {
+  // Check env var first
+  const envKey = process.env.LAT_LLM_KEY;
+  if (envKey) {
+    console.log('');
+    console.log(
+      chalk.green('Semantic search') + ' — LAT_LLM_KEY is set. Ready.',
+    );
+    return;
+  }
+
+  // Check existing config
+  const config = readConfig();
+  const configPath = getConfigPath();
+  if (config.llm_key) {
+    console.log('');
+    console.log(
+      chalk.green('Semantic search') +
+        ' — LLM key configured in ' +
+        chalk.dim(configPath),
+    );
+    return;
+  }
+
+  // No key found — explain what semantic search is and prompt
   console.log('');
   console.log(chalk.bold('Semantic search'));
   console.log('');
@@ -381,28 +498,6 @@ async function setupLlmKey(
       ' for exact lookups, but will miss semantic matches.',
   );
   console.log('');
-
-  // Check env var first
-  const envKey = process.env.LAT_LLM_KEY;
-  if (envKey) {
-    console.log(
-      chalk.green('  LAT_LLM_KEY') +
-        ' is set in your environment. Semantic search is ready.',
-    );
-    return;
-  }
-
-  // Check existing config
-  const config = readConfig();
-  const configPath = getConfigPath();
-  if (config.llm_key) {
-    console.log(
-      chalk.green('  LLM key') +
-        ' already configured in ' +
-        chalk.dim(configPath),
-    );
-    return;
-  }
 
   // Interactive prompt
   if (!rl) {
@@ -528,30 +623,31 @@ export async function initCmd(targetDir?: string): Promise<void> {
 
     console.log('');
     const template = readAgentsTemplate();
+    const fileHashes: Record<string, string> = {};
 
     // Step 3: AGENTS.md (shared by non-Claude agents)
     const needsAgentsMd = useCursor || useCopilot || useCodex;
     if (needsAgentsMd) {
-      setupAgentsMd(root, template);
+      await setupAgentsMd(root, latDir, template, fileHashes, ask);
     }
 
     // Step 4: Per-agent setup
     if (useClaudeCode) {
       console.log('');
       console.log(chalk.bold('Setting up Claude Code...'));
-      await setupClaudeCode(root, template);
+      await setupClaudeCode(root, latDir, template, fileHashes, ask);
     }
 
     if (useCursor) {
       console.log('');
       console.log(chalk.bold('Setting up Cursor...'));
-      await setupCursor(root);
+      await setupCursor(root, latDir, fileHashes, ask);
     }
 
     if (useCopilot) {
       console.log('');
       console.log(chalk.bold('Setting up VS Code Copilot...'));
-      await setupCopilot(root);
+      await setupCopilot(root, latDir, fileHashes, ask);
     }
 
     if (useCodex) {
@@ -564,6 +660,9 @@ export async function initCmd(targetDir?: string): Promise<void> {
 
     // Step 5: LLM key setup
     await setupLlmKey(rl);
+
+    // Record init version and file hashes so `lat check` can detect stale setups
+    writeInitMeta(latDir, fileHashes);
 
     console.log('');
     console.log(

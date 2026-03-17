@@ -55,6 +55,10 @@ async function getLanguage(ext: string): Promise<Language | null> {
     '.js': 'tree-sitter-javascript.wasm',
     '.jsx': 'tree-sitter-javascript.wasm',
     '.py': 'tree-sitter-python.wasm',
+    '.rs': 'tree-sitter-rust.wasm',
+    '.go': 'tree-sitter-go.wasm',
+    '.c': 'tree-sitter-c.wasm',
+    '.h': 'tree-sitter-c.wasm',
   };
   const wasmFile = grammarMap[ext];
   if (!wasmFile) return null;
@@ -277,6 +281,367 @@ function extractPySymbols(tree: Tree): SourceSymbol[] {
   return symbols;
 }
 
+function extractRustSymbols(tree: Tree): SourceSymbol[] {
+  const symbols: SourceSymbol[] = [];
+  const root = tree.rootNode;
+
+  for (let i = 0; i < root.childCount; i++) {
+    const node = root.child(i)!;
+    const startLine = node.startPosition.row + 1;
+    const endLine = node.endPosition.row + 1;
+
+    if (node.type === 'function_item') {
+      const name = extractName(node);
+      if (name) {
+        symbols.push({
+          name,
+          kind: 'function',
+          startLine,
+          endLine,
+          signature: firstLine(node.text),
+        });
+      }
+    } else if (node.type === 'struct_item') {
+      const name = extractName(node);
+      if (name) {
+        symbols.push({
+          name,
+          kind: 'class',
+          startLine,
+          endLine,
+          signature: firstLine(node.text),
+        });
+      }
+    } else if (node.type === 'enum_item') {
+      const name = extractName(node);
+      if (name) {
+        symbols.push({
+          name,
+          kind: 'class',
+          startLine,
+          endLine,
+          signature: firstLine(node.text),
+        });
+      }
+    } else if (node.type === 'trait_item') {
+      const name = extractName(node);
+      if (name) {
+        symbols.push({
+          name,
+          kind: 'interface',
+          startLine,
+          endLine,
+          signature: firstLine(node.text),
+        });
+      }
+    } else if (node.type === 'impl_item') {
+      // impl Type { ... } or impl Trait for Type { ... }
+      const typeName = node.childForFieldName('type')?.text;
+      if (!typeName) continue;
+      const body = node.childForFieldName('body');
+      if (!body) continue;
+      for (let j = 0; j < body.namedChildCount; j++) {
+        const member = body.namedChild(j)!;
+        if (member.type === 'function_item') {
+          const name = extractName(member);
+          if (name) {
+            symbols.push({
+              name,
+              kind: 'method',
+              parent: typeName,
+              startLine: member.startPosition.row + 1,
+              endLine: member.endPosition.row + 1,
+              signature: firstLine(member.text),
+            });
+          }
+        }
+      }
+    } else if (node.type === 'const_item') {
+      const name = extractName(node);
+      if (name) {
+        symbols.push({
+          name,
+          kind: 'const',
+          startLine,
+          endLine,
+          signature: firstLine(node.text),
+        });
+      }
+    } else if (node.type === 'static_item') {
+      const name = extractName(node);
+      if (name) {
+        symbols.push({
+          name,
+          kind: 'variable',
+          startLine,
+          endLine,
+          signature: firstLine(node.text),
+        });
+      }
+    } else if (node.type === 'type_item') {
+      const name = extractName(node);
+      if (name) {
+        symbols.push({
+          name,
+          kind: 'type',
+          startLine,
+          endLine,
+          signature: firstLine(node.text),
+        });
+      }
+    }
+  }
+
+  return symbols;
+}
+
+/**
+ * Extract the receiver type name from a Go method declaration's receiver node.
+ * Handles both value receivers (Greeter) and pointer receivers (*Greeter).
+ */
+function goReceiverType(receiverNode: SyntaxNode): string | null {
+  const param = receiverNode.namedChild(0);
+  if (!param) return null;
+  const typeNode = param.childForFieldName('type');
+  if (!typeNode) return null;
+  // pointer_type -> child is the actual type name
+  if (typeNode.type === 'pointer_type') {
+    return typeNode.namedChild(0)?.text ?? null;
+  }
+  return typeNode.text;
+}
+
+function extractGoSymbols(tree: Tree): SourceSymbol[] {
+  const symbols: SourceSymbol[] = [];
+  const root = tree.rootNode;
+
+  for (let i = 0; i < root.childCount; i++) {
+    const node = root.child(i)!;
+    const startLine = node.startPosition.row + 1;
+    const endLine = node.endPosition.row + 1;
+
+    if (node.type === 'function_declaration') {
+      const name = extractName(node);
+      if (name) {
+        symbols.push({
+          name,
+          kind: 'function',
+          startLine,
+          endLine,
+          signature: firstLine(node.text),
+        });
+      }
+    } else if (node.type === 'method_declaration') {
+      const name = extractName(node);
+      const receiver = node.childForFieldName('receiver');
+      const typeName = receiver ? goReceiverType(receiver) : null;
+      if (name && typeName) {
+        symbols.push({
+          name,
+          kind: 'method',
+          parent: typeName,
+          startLine,
+          endLine,
+          signature: firstLine(node.text),
+        });
+      }
+    } else if (node.type === 'type_declaration') {
+      for (let j = 0; j < node.namedChildCount; j++) {
+        const spec = node.namedChild(j)!;
+        if (spec.type !== 'type_spec') continue;
+        const name = spec.childForFieldName('name')?.text;
+        if (!name) continue;
+        const typeNode = spec.childForFieldName('type');
+        const kind =
+          typeNode?.type === 'interface_type' ? 'interface' : 'class';
+        symbols.push({
+          name,
+          kind,
+          startLine: spec.startPosition.row + 1,
+          endLine: spec.endPosition.row + 1,
+          signature: firstLine(node.text),
+        });
+      }
+    } else if (node.type === 'const_declaration') {
+      for (let j = 0; j < node.namedChildCount; j++) {
+        const spec = node.namedChild(j)!;
+        if (spec.type !== 'const_spec') continue;
+        const name = spec.childForFieldName('name')?.text;
+        if (name) {
+          symbols.push({
+            name,
+            kind: 'const',
+            startLine: spec.startPosition.row + 1,
+            endLine: spec.endPosition.row + 1,
+            signature: firstLine(node.text),
+          });
+        }
+      }
+    } else if (node.type === 'var_declaration') {
+      for (let j = 0; j < node.namedChildCount; j++) {
+        const spec = node.namedChild(j)!;
+        if (spec.type !== 'var_spec') continue;
+        const name = spec.childForFieldName('name')?.text;
+        if (name) {
+          symbols.push({
+            name,
+            kind: 'variable',
+            startLine: spec.startPosition.row + 1,
+            endLine: spec.endPosition.row + 1,
+            signature: firstLine(node.text),
+          });
+        }
+      }
+    }
+  }
+
+  return symbols;
+}
+
+/**
+ * Extract the declarator name from a C function_declarator node.
+ * Handles plain identifiers and pointer declarators (*name).
+ */
+function cFuncName(declarator: SyntaxNode): string | null {
+  if (declarator.type === 'function_declarator') {
+    const inner = declarator.childForFieldName('declarator');
+    if (!inner) return null;
+    if (inner.type === 'identifier') return inner.text;
+    if (inner.type === 'pointer_declarator') {
+      // *name — dig through pointer layers
+      let cur = inner;
+      while (cur.type === 'pointer_declarator') {
+        const child = cur.childForFieldName('declarator');
+        if (!child) return null;
+        cur = child;
+      }
+      return cur.type === 'identifier' ? cur.text : null;
+    }
+  }
+  return null;
+}
+
+/**
+ * Extract the variable name from a C init_declarator or plain declarator.
+ * Handles pointers like `*DEFAULT_NAME = "World"`.
+ */
+function cVarName(declarator: SyntaxNode): string | null {
+  let node = declarator;
+  // Unwrap init_declarator to get the declarator part
+  if (node.type === 'init_declarator') {
+    const inner = node.childForFieldName('declarator');
+    if (!inner) return null;
+    node = inner;
+  }
+  if (node.type === 'identifier') return node.text;
+  if (node.type === 'pointer_declarator') {
+    let cur = node;
+    while (cur.type === 'pointer_declarator') {
+      const child = cur.childForFieldName('declarator');
+      if (!child) return null;
+      cur = child;
+    }
+    return cur.type === 'identifier' ? cur.text : null;
+  }
+  return null;
+}
+
+function extractCSymbols(tree: Tree): SourceSymbol[] {
+  const symbols: SourceSymbol[] = [];
+  collectCNodes(tree.rootNode, symbols);
+  return symbols;
+}
+
+/**
+ * Walk C AST nodes, collecting symbols. Recurses into preproc_ifdef /
+ * preproc_ifndef blocks so header include guards don't hide declarations.
+ */
+function collectCNodes(parent: SyntaxNode, symbols: SourceSymbol[]): void {
+  for (let i = 0; i < parent.childCount; i++) {
+    const node = parent.child(i)!;
+    const startLine = node.startPosition.row + 1;
+    const endLine = node.endPosition.row + 1;
+
+    if (node.type === 'function_definition') {
+      const declarator = node.childForFieldName('declarator');
+      const name = declarator ? cFuncName(declarator) : null;
+      if (name) {
+        symbols.push({
+          name,
+          kind: 'function',
+          startLine,
+          endLine,
+          signature: firstLine(node.text),
+        });
+      }
+    } else if (node.type === 'struct_specifier') {
+      const name = extractName(node);
+      if (name) {
+        symbols.push({
+          name,
+          kind: 'class',
+          startLine,
+          endLine,
+          signature: firstLine(node.text),
+        });
+      }
+    } else if (node.type === 'enum_specifier') {
+      const name = extractName(node);
+      if (name) {
+        symbols.push({
+          name,
+          kind: 'class',
+          startLine,
+          endLine,
+          signature: firstLine(node.text),
+        });
+      }
+    } else if (node.type === 'type_definition') {
+      const declarator = node.childForFieldName('declarator');
+      const name =
+        declarator?.type === 'type_identifier' ? declarator.text : null;
+      if (name) {
+        symbols.push({
+          name,
+          kind: 'type',
+          startLine,
+          endLine,
+          signature: firstLine(node.text),
+        });
+      }
+    } else if (node.type === 'declaration') {
+      const declarator = node.childForFieldName('declarator');
+      const name = declarator ? cVarName(declarator) : null;
+      if (name) {
+        symbols.push({
+          name,
+          kind: 'variable',
+          startLine,
+          endLine,
+          signature: firstLine(node.text),
+        });
+      }
+    } else if (node.type === 'preproc_def') {
+      const name = extractName(node);
+      if (name) {
+        symbols.push({
+          name,
+          kind: 'const',
+          startLine,
+          endLine,
+          signature: firstLine(node.text),
+        });
+      }
+    } else if (
+      node.type === 'preproc_ifdef' ||
+      node.type === 'preproc_ifndef'
+    ) {
+      // Recurse into include guard / conditional blocks
+      collectCNodes(node, symbols);
+    }
+  }
+}
+
 function firstLine(text: string): string {
   const nl = text.indexOf('\n');
   return nl === -1 ? text : text.slice(0, nl);
@@ -297,6 +662,15 @@ export async function parseSourceSymbols(
 
   if (ext === '.py') {
     return extractPySymbols(tree);
+  }
+  if (ext === '.rs') {
+    return extractRustSymbols(tree);
+  }
+  if (ext === '.go') {
+    return extractGoSymbols(tree);
+  }
+  if (ext === '.c' || ext === '.h') {
+    return extractCSymbols(tree);
   }
   return extractTsSymbols(tree);
 }
@@ -369,7 +743,7 @@ export function sourceSymbolsToSections(
       children: [],
       startLine: sym.startLine,
       endLine: sym.endLine,
-      body: sym.signature,
+      firstParagraph: sym.signature,
     };
     sections.push(section);
 
@@ -394,7 +768,7 @@ export function sourceSymbolsToSections(
       children: [],
       startLine: sym.startLine,
       endLine: sym.endLine,
-      body: sym.signature,
+      firstParagraph: sym.signature,
     };
     parentSection.children.push(section);
   }

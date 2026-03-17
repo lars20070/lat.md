@@ -2,7 +2,9 @@
 lat:
   require-code-mention: true
 ---
-# Prompt
+# Expand
+
+Tests for the `lat expand` command that resolves `[[refs]]` and appends context blocks.
 
 ## Resolves exact ref with context
 

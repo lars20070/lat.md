@@ -20,7 +20,9 @@ Aligned with Obsidian conventions:
 
 ### Short Path Disambiguation
 
-Short refs are supported for markdown files inside `lat.md/` only. When a file stem is unique across the vault, it can be used without its directory prefix. For example, `[[setup#Install]]` resolves to `lat.md/guides/setup#Install` if `setup.md` only exists under `lat.md/guides/`.
+Short refs are supported for markdown files inside `lat.md/` only. When a file stem is unique across the vault, it can be used without its directory prefix.
+
+For example, `[[setup#Install]]` resolves to `lat.md/guides/setup#Install` if `setup.md` only exists under `lat.md/guides/`.
 
 When multiple files share the same stem (e.g. `alpha/notes.md` and `beta/notes.md`), the short form is ambiguous — [[cli#check#md]] reports an error listing all candidates. If the referenced section exists in only one file, the error suggests the specific fix.
 
@@ -30,11 +32,22 @@ Resolution is handled by [[src/lattice.ts#resolveRef]]. See [[parser#Short Ref R
 
 ### Source Code Links
 
-Wiki links can reference functions, classes, constants, and methods in TypeScript, JavaScript, and Python source files:
+Wiki links can reference symbols in TypeScript, JavaScript, Python, Rust, Go, and C source files:
 
 - **`[[src/config.ts#getConfigDir]]`** — the `getConfigDir` function in `src/config.ts`
 - **`[[src/server.ts#App#listen]]`** — the `listen` method on class `App` in `src/server.ts`
+- **`[[src/lib.rs#Greeter#greet]]`** — the `greet` method on struct `Greeter` in Rust
+- **`[[src/app.go#Greeter#Greet]]`** — the `Greet` method on type `Greeter` in Go
+- **`[[src/app.h#Greeter]]`** — the `Greeter` struct in a C header
 - **`[[src/config.ts]]`** — link to the file itself (no symbol)
+
+Supported extensions: `.ts`, `.tsx`, `.js`, `.jsx`, `.py`, `.rs`, `.go`, `.c`, `.h`.
+
+Rust symbols: functions, structs, enums, traits, impl methods, consts, statics, type aliases. Methods are resolved via `impl` blocks — `[[file.rs#Type#method]]` matches any `impl Type { fn method() }` or `impl Trait for Type { fn method() }`.
+
+Go symbols: functions, types (structs, interfaces, type aliases), methods (with receiver), consts, vars. Methods are resolved via receiver type — `[[file.go#Type#Method]]` matches `func (t *Type) Method()`.
+
+C symbols: functions, structs, enums, typedefs, `#define` macros, variables. Both `.c` and `.h` files are supported — include guards (`#ifndef`/`#endif`) are walked through transparently.
 
 Source code is parsed lazily with tree-sitter (via `web-tree-sitter`). Only files referenced by wiki links are parsed — no up-front scanning. [[cli#check#md]] validates that the file exists and the symbol is defined.
 
@@ -42,7 +55,15 @@ Source code is parsed lazily with tree-sitter (via `web-tree-sitter`). Only file
 
 **Strict** — `lat check` and `lat refs` use `resolveRef()` directly. Links must resolve unambiguously to a known section. Ambiguous or broken links are errors.
 
-**Lenient** — `lat locate` and `lat prompt` use `findSections()`, which applies tiered matching (exact → file stem → subsection tail → fuzzy). These commands are for interactive exploration and accept approximate queries.
+**Lenient** — `lat locate` and `lat expand` use `findSections()`, which applies tiered matching (exact → file stem → subsection tail → fuzzy). These commands are for interactive exploration and accept approximate queries.
+
+## Leading Paragraph
+
+Every section must have a leading paragraph — at least one sentence immediately after the heading, before any child headings.
+
+The first paragraph must be ≤250 characters (excluding `[[wiki link]]` content). It serves as the section's overview for search results, command output, and RAG context. Subsequent paragraphs can go into detail.
+
+Validated by [[cli#check#sections]].
 
 ## Frontmatter
 
