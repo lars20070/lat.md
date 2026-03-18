@@ -143,6 +143,9 @@ Steps:
 6. **LLM key setup** — checks for an existing key (env var or [[cli#Configuration File]]), and if missing, interactively prompts the user to paste one. Explains what semantic search is and why a key is needed before asking.
 7. **Version stamp + file hashes** — writes `INIT_VERSION` and SHA-256 hashes of all template-generated files to `lat.md/.cache/lat_init.json`. On re-run, compares current file content against stored hashes: unmodified files are silently updated to the latest template; user-modified files trigger a Y/n prompt offering to overwrite with the latest template, declining suggests [[cli#gen]].
 
+
+At the very start, before any steps, init prints "Checking latest version..." and awaits [[src/version.ts#fetchLatestVersion]] (3s timeout). If a newer version exists, prints an update notice so the user can upgrade before proceeding. If the fetch fails or the version matches, the message is cleared silently.
+
 ### Claude Code
 
 Sets up `CLAUDE.md` and two agent hooks for the Claude Code coding agent.

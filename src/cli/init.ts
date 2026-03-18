@@ -22,6 +22,7 @@ import {
   writeConfig,
 } from '../config.js';
 import { writeInitMeta, readFileHash, contentHash } from '../init-version.js';
+import { getLocalVersion, fetchLatestVersion } from '../version.js';
 import { selectMenu, type SelectOption } from './select-menu.js';
 
 async function confirm(
@@ -738,6 +739,27 @@ async function setupLlmKey(
 // ── Main init flow ───────────────────────────────────────────────────
 
 export async function initCmd(targetDir?: string): Promise<void> {
+  // Upfront version check — let the user upgrade before proceeding
+  process.stdout.write(chalk.dim('Checking latest version...'));
+  const latest = await fetchLatestVersion();
+  const local = getLocalVersion();
+  if (latest && latest !== local) {
+    console.log(
+      ' ' +
+        chalk.yellow('update available:') +
+        ' ' +
+        local +
+        ' → ' +
+        chalk.green(latest) +
+        ' — run ' +
+        chalk.cyan('npm install -g lat.md') +
+        ' to update.',
+    );
+    console.log('');
+  } else {
+    console.log(' ' + chalk.green(`latest version is used (${local})`));
+  }
+
   const root = resolve(targetDir ?? process.cwd());
   const latDir = join(root, 'lat.md');
 
