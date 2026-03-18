@@ -1,4 +1,4 @@
-const logo = `
+const logo = `\
 ░██             ░██                                ░██
 ░██             ░██                                ░██
 ░██  ░██████  ░██████       ░█████████████   ░████████
@@ -6,13 +6,13 @@ const logo = `
 ░██  ░███████   ░██         ░██   ░██   ░██ ░██    ░██
 ░██ ░██   ░██   ░██         ░██   ░██   ░██ ░██   ░███
 ░██  ░█████░██   ░███  ░██  ░██   ░██   ░██  ░█████░██
-`.trimStart()
+`
 
 function Cmd({ children }: { children: React.ReactNode }) {
   return (
     <span
       style={{
-        color: '#aaa',
+        color: '#bbb',
         background: '#222',
         borderRadius: '4px',
         padding: '1px 5px',
@@ -28,7 +28,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
     <div
       style={{
-        color: '#bbb',
+        color: '#ccc',
         fontSize: 12,
         textTransform: 'uppercase',
         letterSpacing: '0.15em',
@@ -76,7 +76,7 @@ export default function Home() {
       {/* Tagline */}
       <p
         style={{
-          color: '#888',
+          color: '#999',
           fontSize: 18,
           textAlign: 'center',
           margin: 0,
@@ -101,7 +101,7 @@ export default function Home() {
               listStyle: 'none',
               fontSize: 14,
               lineHeight: 1.45,
-              color: '#888',
+              color: '#999',
             }}
           >
             <li>* Knowledge base (spec) that evolves in sync with your codebase</li>
@@ -132,7 +132,7 @@ export default function Home() {
           </code>
           <div
             style={{
-              color: '#777',
+              color: '#888',
               fontSize: 14,
               marginTop: '10px',
             }}
@@ -151,7 +151,7 @@ export default function Home() {
               listStyle: 'none',
               fontSize: 14,
               lineHeight: 1.45,
-              color: '#888',
+              color: '#999',
             }}
           >
             <li>* Plain markdown: readable by humans, parseable by agents</li>
@@ -160,7 +160,7 @@ export default function Home() {
             <li>* <Cmd>lat check</Cmd> ensures nothing drifts out of sync</li>
             <li>* <Cmd>lat search</Cmd> for semantic vector search across all sections</li>
             <li style={{ marginTop: '1em' }}>
-              <span style={{ color: '#888' }}>Read the </span>
+              <span style={{ color: '#999' }}>Read the </span>
               <a
                 className="foot"
                 href="https://github.com/1st1/lat.md#readme"
@@ -181,38 +181,27 @@ export default function Home() {
               listStyle: 'none',
               fontSize: 14,
               lineHeight: 1.45,
-              color: '#888',
             }}
           >
-            <li style={{ display: 'flex', gap: '1.5ch', paddingLeft: 0, textIndent: 0 }}>
-              <span style={{ color: '#555', flexShrink: 0 }}>0.7</span>
-              <span>
-                Multi-language source links (Rust, Go, C); <Cmd>lat section</Cmd>{' '}
-                and <Cmd>lat expand</Cmd> commands; section structure validation;
-                smarter <Cmd>lat init</Cmd> with versioning &amp; hook sync
-              </span>
-            </li>
-            <li style={{ display: 'flex', gap: '1.5ch', paddingLeft: 0, textIndent: 0 }}>
-              <span style={{ color: '#555', flexShrink: 0 }}>0.6</span>
-              <span>
-                Source code wiki links — reference functions and classes directly
-                from specs: <Cmd>{'[[src/foo.ts#myFunc]]'}</Cmd>
-              </span>
-            </li>
-            <li style={{ display: 'flex', gap: '1.5ch', paddingLeft: 0, textIndent: 0 }}>
-              <span style={{ color: '#555', flexShrink: 0 }}>0.5</span>
-              <span>
-                Auto-suggest <Cmd>lat init</Cmd> when no <Cmd>lat.md/</Cmd> found;
-                section IDs now include h1 heading; wiki links in index files
-              </span>
-            </li>
-            <li style={{ display: 'flex', gap: '1.5ch', paddingLeft: 0, textIndent: 0 }}>
-              <span style={{ color: '#555', flexShrink: 0 }}>0.4</span>
-              <span>
-                MCP server for editor integration; multi-agent <Cmd>lat init</Cmd>;
-                flexible API key config via env, file, or helper command
-              </span>
-            </li>
+            {[
+              { v: '0.9', text: <><Cmd>lat init</Cmd> creates a lat skill for supported agents</> },
+              { v: '0.8', text: <>Pi coding agent integration; interactive arrow-key menus in <Cmd>lat init</Cmd></> },
+              { v: '0.7', text: <>Multi-language source links (Rust, Go, C); <Cmd>lat section</Cmd> and <Cmd>lat expand</Cmd> commands; section structure validation</> },
+              { v: '0.6', text: <>Source code wiki links — reference functions and classes directly from specs: <Cmd>{'[[src/foo.ts#myFunc]]'}</Cmd></> },
+              { v: '0.5', text: <>Auto-suggest <Cmd>lat init</Cmd> when no <Cmd>lat.md/</Cmd> found; section IDs now include h1 heading</> },
+            ].slice(0, 5).map(({ v, text }, i, arr) => {
+              const t = 1 - i / (arr.length - 1 || 1)
+              const c = Math.round(80 + 73 * t)
+              const textColor = `rgb(${c}, ${c}, ${c})`
+              const vc = Math.round(40 + 50 * t)
+              const versionColor = `rgb(${vc}, ${vc}, ${vc})`
+              return (
+                <li key={v} style={{ display: 'flex', gap: '1.5ch', paddingLeft: 0, textIndent: 0, color: textColor }}>
+                  <span style={{ color: versionColor, flexShrink: 0 }}>{v}</span>
+                  <span>{text}</span>
+                </li>
+              )
+            })}
           </ul>
         </div>
       </div>

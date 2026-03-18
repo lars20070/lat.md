@@ -10,6 +10,14 @@ export function readCursorRulesTemplate(): string {
   return readFileSync(join(findTemplatesDir(), 'cursor-rules.md'), 'utf-8');
 }
 
+export function readPiExtensionTemplate(): string {
+  return readFileSync(join(findTemplatesDir(), 'pi-extension.ts'), 'utf-8');
+}
+
+export function readSkillTemplate(): string {
+  return readFileSync(join(findTemplatesDir(), 'skill', 'SKILL.md'), 'utf-8');
+}
+
 export async function genCmd(target: string): Promise<void> {
   const normalized = target.toLowerCase();
   switch (normalized) {
@@ -20,9 +28,15 @@ export async function genCmd(target: string): Promise<void> {
     case 'cursor-rules.md':
       process.stdout.write(readCursorRulesTemplate());
       break;
+    case 'pi-extension.ts':
+      process.stdout.write(readPiExtensionTemplate());
+      break;
+    case 'skill.md':
+      process.stdout.write(readSkillTemplate());
+      break;
     default:
       console.error(
-        `Unknown target: ${target}. Supported: agents.md, claude.md, cursor-rules.md`,
+        `Unknown target: ${target}. Supported: agents.md, claude.md, cursor-rules.md, pi-extension.ts, skill.md`,
       );
       process.exit(1);
   }

@@ -22,13 +22,13 @@ Implementation: [[src/cli/locate.ts]], matching logic in [[src/lattice.ts#findSe
 
 ## section
 
-Show a section's full content along with its outgoing and incoming wiki link references. Designed as a companion to [[cli#search]] — search gives RAG results, `section` facilitates browsing them by showing the full context of each result.
+Show a section's full content including all subsections, along with outgoing and incoming wiki link references. Companion to [[cli#search]] — search gives RAG results, `section` lets you browse them by showing the full context of each result.
 
 Accepts any valid section id (short-form, full-path, with or without `[[brackets]]`). Uses the same resolution logic as [[cli#refs]].
 
 Output:
 1. Section header with id and file location
-2. Section content blockquoted (`>`) between `startLine` and `endLine`
+2. Section content blockquoted (`>`) from `startLine` through the end of the last descendant subsection
 3. **This section references** — all wiki link targets found within the section, with body descriptions
 4. **Referenced by** — other sections in `lat.md/` that contain wiki links pointing to this section
 5. **Navigation hints** — same footer as [[cli#search]], suggesting `lat section` and `lat search` as next steps
@@ -122,6 +122,8 @@ Supported targets:
 - `agents.md` — generate an `AGENTS.md` with instructions for coding agents on how to use `lat.md` in the project
 - `claude.md` — alias for `agents.md`
 - `cursor-rules.md` — generate Cursor rules for `.cursor/rules/lat.md`
+- `pi-extension.ts` — generate the Pi extension template (tools + lifecycle hooks)
+- `skill.md` — generate the Agent Skills spec `SKILL.md` for the `lat-md` skill (authoring guide for `lat.md/` files)
 
 Output is written to stdout so it can be redirected: `lat gen agents.md > AGENTS.md`.
 
@@ -134,23 +136,37 @@ Interactive setup wizard. Walks the user through initializing lat.md in a projec
 Usage: `lat init [dir]`
 
 Steps:
-1. **lat.md/ directory** — if not present, asks whether to create it. Scaffolds from `templates/init/` (`.gitignore` and `README.md`). If it already exists, skips ahead.
-2. **Agent selection** — asks which coding agents the user uses (Claude Code, Cursor, VS Code Copilot, Codex/OpenCode). Each gets a Y/n prompt.
-3. **AGENTS.md** — created if a non-Claude agent is selected (Cursor, Copilot, Codex). Shared instruction file.
-4. **Per-agent setup** — configures each selected agent (see subsections below). Each step prints a brief explanation of *why* it's needed (e.g. why a hook is used instead of CLAUDE.md, why MCP is registered alongside CLI access).
-5. **LLM key setup** — checks for an existing key (env var or [[cli#Configuration File]]), and if missing, interactively prompts the user to paste one. Explains what semantic search is and why a key is needed before asking.
-6. **Version stamp + file hashes** — writes `INIT_VERSION` and SHA-256 hashes of all template-generated files to `lat.md/.cache/lat_init.json`. On re-run, compares current file content against stored hashes: unmodified files are silently updated to the latest template; user-modified files trigger a Y/n prompt offering to overwrite with the latest template, declining suggests [[cli#gen]].
+1. **lat.md/ directory** — if not present, asks whether to create it (via a one-off readline interface that is closed before step 2). Scaffolds from `templates/init/` (`.gitignore` and `README.md`). If it already exists, skips ahead.
+2. **Agent selection** — interactive arrow-key select menu ([[src/cli/select-menu.ts#selectMenu]]). Users pick agents one at a time; after each selection, the menu reappears without that agent and with a "This is it: continue" option (green background accent) at the top. On the first prompt the cursor defaults to the first agent; on subsequent prompts it defaults to "This is it: continue". Supports up/down arrows, j/k, Enter to confirm, Ctrl+C to abort. **Important:** the persistent readline interface is created *after* this step — `selectMenu` puts stdin into raw mode with its own `data` listener, which corrupts any co-existing readline interface.
+3. **Command style** — if any selected agent needs a lat command reference (all except Codex), a `selectMenu` asks "How should agents run lat?" with three options: `lat` (global install, portable), the resolved local binary path, or `npx lat.md@latest` (slow but zero-install). The choice determines what command string is written into hooks, MCP configs, and Pi extensions. Non-interactive mode defaults to `local`. Choosing `global` or `npx` makes generated config files portable and safe to commit.
+4. **AGENTS.md** — created if a non-Claude agent is selected (Cursor, Copilot, Codex). Shared instruction file.
+5. **Per-agent setup** — configures each selected agent (see subsections below). Each step prints a brief explanation of *why* it's needed (e.g. why a hook is used instead of CLAUDE.md, why MCP is registered alongside CLI access).
+6. **LLM key setup** — checks for an existing key (env var or [[cli#Configuration File]]), and if missing, interactively prompts the user to paste one. Explains what semantic search is and why a key is needed before asking.
+7. **Version stamp + file hashes** — writes `INIT_VERSION` and SHA-256 hashes of all template-generated files to `lat.md/.cache/lat_init.json`. On re-run, compares current file content against stored hashes: unmodified files are silently updated to the latest template; user-modified files trigger a Y/n prompt offering to overwrite with the latest template, declining suggests [[cli#gen]].
+
+
+At the very start, before any steps, init prints the ASCII `lat.md` logo (cyan, matching the website) followed by "Checking latest version..." and awaits [[src/version.ts#fetchLatestVersion]] (3s timeout). If a newer version exists, prints an update notice so the user can upgrade before proceeding. If the fetch fails or the version matches, the message is cleared silently.
 
 ### Claude Code
 
 Sets up `CLAUDE.md` and two agent hooks for the Claude Code coding agent.
 
 - `CLAUDE.md` — written directly from the template (not a symlink)
-- Hooks synced in `.claude/settings.json` — on every run, all existing lat-owned hook entries are removed, then fresh entries are added for both events. Detection uses two heuristics: `/\blat\b/` in the command string, or command starting with the current binary path (handles development installs where `lat` appears inside a longer path like `lattice/dist/...`). Non-lat hooks are preserved. Both hooks call [[cli#hook]]:
+- Hooks synced in `.claude/settings.json` — on every run, all existing lat-owned hook entries are removed, then fresh entries are added for both events. Detection uses three heuristics: `/\blat\b/` in the command string, `hook claude ` substring (catches any install path), or command starting with the current binary path. Non-lat hooks are preserved. Both hooks call [[cli#hook]]:
   - `UserPromptSubmit` → `lat hook claude UserPromptSubmit` — injects lat.md workflow reminders, auto-resolves `[[refs]]` in the prompt
   - `Stop` → `lat hook claude Stop` — reminds the agent to update `lat.md/` before finishing
+- `.claude/skills/lat-md/SKILL.md` — skill spec generated from `templates/skill/SKILL.md`. Teaches the agent how to author and maintain `lat.md/` files. Claude Code discovers it automatically from `.claude/skills/`.
 - `.claude` directory added to `.gitignore` (settings contain local absolute paths in hook commands)
 - [[cli#mcp]] server registered in `.mcp.json` at the project root (added to `.gitignore` since it contains absolute paths)
+
+### Pi
+
+Sets up a Pi extension that registers lat tools as native Pi tools and hooks into the agent lifecycle.
+
+- `AGENTS.md` — shared instruction file (created in the shared step)
+- `.pi/extensions/lat.ts` — TypeScript extension generated from `templates/pi-extension.ts` with the full invocation command injected. `resolveLatBin()` in `init.ts` reconstructs exactly how the process was started: for compiled binaries it's just the binary path; for `.ts` source files run via tsx it captures `node <execArgv> <script>` so the same loader flags are replayed. Registers six tools (`lat_search`, `lat_section`, `lat_locate`, `lat_check`, `lat_expand`, `lat_refs`) that shell out to the `lat` CLI. Each tool provides a `renderCall` method so the Pi TUI displays the query/parameters inline in the tool call header (e.g. `lat search "query text"`). The `lat_search` and `lat_section` tools also provide a `renderResult` method that shows a collapsed preview (first 4 lines) by default and the full output when expanded via Ctrl+O (`expandTools` keybinding). Registers custom message renderers for `lat-reminder` and `lat-check` that show a collapsed one-liner by default and expand to full content on Ctrl+O. Hooks into `before_agent_start` (injects a visible search reminder via `customType` message with `display: true`) and `agent_end` (runs `lat check` + diff analysis, sends a visible follow-up message if something needs fixing).
+- `.pi/skills/lat-md/SKILL.md` — skill spec generated from `templates/skill/SKILL.md`. Teaches the agent how to author and maintain `lat.md/` files (section structure, wiki links, code refs, test specs). Pi discovers it automatically from the `.pi/skills/` directory.
+- `.pi` directory added to `.gitignore` (extension and skills contain local paths)
 
 ### Cursor
 
@@ -158,6 +174,7 @@ Sets up `.cursor/rules` and registers the MCP server for Cursor.
 
 - `.cursor/rules/lat.md` — rules file generated from `templates/cursor-rules.md`, references MCP tools instead of CLI commands
 - [[cli#mcp]] server registered in `.cursor/mcp.json` (added to `.gitignore` since it contains absolute paths)
+- `.agents/skills/lat-md/SKILL.md` — skill spec for authoring `lat.md/` files, placed in the cross-agent standard skills directory
 
 ### VS Code Copilot
 
@@ -165,14 +182,18 @@ Sets up `copilot-instructions.md` and registers the MCP server for VS Code Copil
 
 - `.github/copilot-instructions.md` — static instructions file
 - [[cli#mcp]] server registered in `.vscode/mcp.json`
+- `.agents/skills/lat-md/SKILL.md` — skill spec for authoring `lat.md/` files, placed in the cross-agent standard skills directory
 
 ### Codex / OpenCode
 
-- Uses AGENTS.md only (no MCP support)
+- Uses AGENTS.md (no MCP support)
+- `.agents/skills/lat-md/SKILL.md` — skill spec for authoring `lat.md/` files, placed in the cross-agent standard skills directory
 
 All setup steps are idempotent — existing configuration is detected and skipped.
 
-Implementation: [[src/cli/init.ts]], version tracking in [[src/init-version.ts]]
+`.gitignore` entries are only added if the target path is not already tracked in git (`git ls-files`); if tracked, the step prints a warning and skips to avoid a no-op ignore rule.
+
+Implementation: [[src/cli/init.ts]], interactive menu in [[src/cli/select-menu.ts]], version tracking in [[src/init-version.ts]]
 
 ## Configuration File
 
@@ -198,14 +219,19 @@ Currently supports `claude` agent with two events:
 Reads the hook input from stdin (JSON with `user_prompt`). Outputs JSON with `additionalContext` containing:
 
 1. A directive to ALWAYS run `lat search` on the user's intent before starting work — even for seemingly straightforward tasks — because search may reveal critical design details, protocols, or constraints. Includes a hard gate: do not read files, write code, or run commands until search is done.
-2. If the prompt contains `[[refs]]`, resolves them inline using [[src/cli/expand.ts#expandPrompt]]
-3. Runs [[src/cli/search.ts#runSearch]] on the user prompt, then [[src/cli/section.ts#getSection]] + [[src/cli/section.ts#formatSectionOutput]] on each result — the agent gets full section content with outgoing/incoming refs before it starts work. Gracefully degrades if no LLM key is configured.
+2. A reminder that `lat.md/` must stay in sync with the codebase — update relevant sections and run `lat check` before finishing.
+3. If the prompt contains `[[refs]]`, resolves them inline using [[src/cli/expand.ts#expandPrompt]]
+4. Runs [[src/cli/search.ts#runSearch]] on the user prompt, then [[src/cli/section.ts#getSection]] + [[src/cli/section.ts#formatSectionOutput]] on each result — the agent gets full section content with outgoing/incoming refs before it starts work. Gracefully degrades if no LLM key is configured.
 
 ### Stop
 
-Blocks the agent from stopping (`decision: "block"`) with a `reason` reminding it to update `lat.md/` and run `lat check` before finishing. Only fires when a `lat.md/` directory exists in the project.
+Conditionally blocks the agent from stopping — only when something is actually wrong.
 
-Reads `stop_hook_active` from the hook input to avoid blocking twice — if the agent was already continued by a previous block, the hook exits silently to prevent an infinite loop.
+1. **No `lat.md/` dir** — exit silently.
+2. **Run `lat check`** — always, on both first and second pass.
+3. **Second pass** (`stop_hook_active` true) — if check still fails, print warning to stderr (no block, loop stops). If check passes, exit silently.
+4. **First pass** — run `git diff HEAD --numstat`. Count `codeLines` (files matching [[src/source-parser.ts#SOURCE_EXTENSIONS]]) and `latMdLines`. Skip ratio check if `codeLines < 5` or `latMdLines >= 50` (enough doc work was clearly done). Otherwise round `latMdLines` up to 1 (if nonzero) and flag `needsSync` when `latMdLines < codeLines * 5%`.
+5. **Decision** — both pass: exit silently, clean output. Check failed + needs sync: block ("update `lat.md/`, then run `lat check` until it passes"). Check failed only: block ("run `lat check` until it passes"). Needs sync only: block with explicit context ("not updated" when 0 lat.md lines, "may not be fully in sync (N lines)" when some changes exist but below ratio).
 
 Implementation: [[src/cli/hook.ts]]
 

@@ -6,10 +6,16 @@ import {
   readFileSync,
 } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { execSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 import chalk from 'chalk';
 import { findTemplatesDir } from './templates.js';
-import { readAgentsTemplate, readCursorRulesTemplate } from './gen.js';
+import {
+  readAgentsTemplate,
+  readCursorRulesTemplate,
+  readPiExtensionTemplate,
+  readSkillTemplate,
+} from './gen.js';
 import {
   getLlmKey,
   getConfigPath,
@@ -17,6 +23,8 @@ import {
   writeConfig,
 } from '../config.js';
 import { writeInitMeta, readFileHash, contentHash } from '../init-version.js';
+import { getLocalVersion, fetchLatestVersion } from '../version.js';
+import { selectMenu, type SelectOption } from './select-menu.js';
 
 async function confirm(
   rl: ReturnType<typeof createInterface>,
@@ -51,11 +59,89 @@ async function prompt(
   }
 }
 
+// ── Binary resolution ────────────────────────────────────────────────
+
+/**
+ * Return the loader-related flags from `process.execArgv`, stripping
+ * `--eval`/`-e`/`--print`/`-p` and their value arguments (those only
+ * appear when the process was started with `node -e`/`-p`).
+ */
+function loaderExecArgs(): string[] {
+  const raw = process.execArgv;
+  const args: string[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    if (
+      raw[i] === '--eval' ||
+      raw[i] === '-e' ||
+      raw[i] === '--print' ||
+      raw[i] === '-p'
+    ) {
+      i++; // skip the value argument
+    } else {
+      args.push(raw[i]);
+    }
+  }
+  return args;
+}
+
+/**
+ * Reconstruct the command prefix used to invoke this process.
+ *
+ * When running via a compiled JS entry point (e.g. the global `lat` binary),
+ * `process.argv[1]` is enough (e.g. `/usr/local/bin/lat`).
+ *
+ * When running via a TypeScript loader like tsx, the script itself can't be
+ * executed directly — we need to replay the same node flags that loaded tsx.
+ * We detect this by checking `process.execArgv` for tsx's `--import` loader
+ * and reconstruct: `node <execArgv...> <script>`.
+ */
+function resolveLatBin(): string {
+  const script = resolve(process.argv[1]);
+
+  // Not a .ts file — compiled JS or a wrapper script, use as-is.
+  if (!script.endsWith('.ts')) return script;
+
+  // Running a .ts file: reconstruct `node <execArgv> <script>` so the
+  // same loader (tsx, ts-node, etc.) is used when the command is replayed.
+  const node = process.argv[0];
+  const execArgs = loaderExecArgs();
+  if (execArgs.length > 0) {
+    return [node, ...execArgs, script]
+      .map((a) => (a.includes(' ') ? `"${a}"` : a))
+      .join(' ');
+  }
+
+  // .ts file but no special loader flags — best-effort, just return the path
+  return script;
+}
+
+// ── Command style ───────────────────────────────────────────────────
+
+type LatCommandStyle = 'global' | 'local' | 'npx';
+
+/** Return the lat binary string for the given command style. */
+function latBinString(style: LatCommandStyle): string {
+  if (style === 'global') return 'lat';
+  if (style === 'npx') return 'npx lat.md@latest';
+  return resolveLatBin();
+}
+
+/** Return the MCP server command descriptor for the given command style. */
+function styledMcpCommand(style: LatCommandStyle): {
+  command: string;
+  args: string[];
+} {
+  if (style === 'global') return { command: 'lat', args: ['mcp'] };
+  if (style === 'npx')
+    return { command: 'npx', args: ['lat.md@latest', 'mcp'] };
+  return mcpCommand();
+}
+
 // ── Claude Code helpers ──────────────────────────────────────────────
 
-/** Derive the hook command prefix from the currently running binary. */
-function latHookCommand(event: string): string {
-  return `${resolve(process.argv[1])} hook claude ${event}`;
+/** Derive the hook command prefix for the given command style. */
+function latHookCommand(style: LatCommandStyle, event: string): string {
+  return `${latBinString(style)} hook claude ${event}`;
 }
 
 type HookEntry = { hooks?: { type?: string; command?: string }[] };
@@ -67,7 +153,9 @@ function isLatHookEntry(entry: HookEntry): boolean {
     entry.hooks?.some(
       (h) =>
         typeof h.command === 'string' &&
-        (/\blat\b/.test(h.command) || h.command.startsWith(bin + ' ')),
+        (/\blat\b/.test(h.command) ||
+          h.command.includes('hook claude ') ||
+          h.command.startsWith(bin + ' ')),
     ) ?? false
   );
 }
@@ -76,7 +164,7 @@ function isLatHookEntry(entry: HookEntry): boolean {
  * Remove all lat-owned hook entries from settings, then add fresh ones.
  * Preserves any non-lat hooks the user may have configured.
  */
-function syncLatHooks(settingsPath: string): void {
+function syncLatHooks(settingsPath: string, style: LatCommandStyle): void {
   let settings: Record<string, unknown> = {};
   if (existsSync(settingsPath)) {
     const raw = readFileSync(settingsPath, 'utf-8');
@@ -111,7 +199,7 @@ function syncLatHooks(settingsPath: string): void {
       hooks[event] = [];
     }
     (hooks[event] as unknown[]).push({
-      hooks: [{ type: 'command', command: latHookCommand(event) }],
+      hooks: [{ type: 'command', command: latHookCommand(style, event) }],
     });
   }
 
@@ -131,6 +219,29 @@ function ensureGitignored(root: string, entry: string): void {
     if (lines.includes(entry)) {
       console.log(chalk.green(`  ${entry}`) + ' already in .gitignore');
       return;
+    }
+  }
+
+  // Skip if the entry is already tracked in git — adding it to .gitignore
+  // would have no effect and confuse the user.
+  if (existsSync(gitDir)) {
+    try {
+      const result = execSync(`git ls-files "${entry}"`, {
+        cwd: root,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      if (result.trim().length > 0) {
+        console.log(
+          chalk.yellow(`  ${entry}`) +
+            ' is already checked in to git — skipping .gitignore',
+        );
+        return;
+      }
+    } catch {
+      console.log(
+        chalk.yellow(`  Warning:`) + ' git ls-files failed — skipping check',
+      );
     }
   }
 
@@ -158,10 +269,32 @@ function ensureGitignored(root: string, entry: string): void {
  * Derive the MCP server command from the currently running binary.
  * If `lat init` was invoked as `/path/to/lat`, we emit
  * `{ command: "/path/to/lat", args: ["mcp"] }` so the MCP client
- * starts the same binary.
+ * starts the same binary. When running via tsx, emits
+ * `{ command: "node", args: ["--import", "tsx/loader", ..., "script.ts", "mcp"] }`.
  */
 function mcpCommand(): { command: string; args: string[] } {
-  return { command: resolve(process.argv[1]), args: ['mcp'] };
+  const script = resolve(process.argv[1]);
+  if (!script.endsWith('.ts')) {
+    return { command: script, args: ['mcp'] };
+  }
+  const raw = process.execArgv;
+  const execArgs: string[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    if (
+      raw[i] === '--eval' ||
+      raw[i] === '-e' ||
+      raw[i] === '--print' ||
+      raw[i] === '-p'
+    ) {
+      i++;
+    } else {
+      execArgs.push(raw[i]);
+    }
+  }
+  if (execArgs.length > 0) {
+    return { command: process.argv[0], args: [...execArgs, script, 'mcp'] };
+  }
+  return { command: script, args: ['mcp'] };
 }
 
 // ── MCP config helpers ───────────────────────────────────────────────
@@ -184,7 +317,11 @@ function hasMcpServer(configPath: string, key: string): boolean {
   }
 }
 
-function addMcpServer(configPath: string, key: string): void {
+function addMcpServer(
+  configPath: string,
+  key: string,
+  style: LatCommandStyle,
+): void {
   let cfg: McpConfig = { [key]: {} };
   if (existsSync(configPath)) {
     const raw = readFileSync(configPath, 'utf-8');
@@ -196,7 +333,7 @@ function addMcpServer(configPath: string, key: string): void {
     }
   }
 
-  cfg[key].lat = mcpCommand();
+  cfg[key].lat = styledMcpCommand(style);
 
   mkdirSync(join(configPath, '..'), { recursive: true });
   writeFileSync(configPath, JSON.stringify(cfg, null, 2) + '\n');
@@ -268,6 +405,35 @@ async function writeTemplateFile(
   return null;
 }
 
+// ── Shared skill setup ───────────────────────────────────────────────
+
+async function writeAgentsSkill(
+  root: string,
+  latDir: string,
+  hashes: Record<string, string>,
+  ask: (message: string) => Promise<boolean>,
+): Promise<void> {
+  console.log('');
+  console.log(
+    chalk.dim(
+      '  The lat-md skill teaches the agent how to write and maintain lat.md/ files.',
+    ),
+  );
+
+  const skillTemplate = readSkillTemplate();
+  const skillHash = await writeTemplateFile(
+    root,
+    latDir,
+    '.agents/skills/lat-md/SKILL.md',
+    skillTemplate,
+    'skill.md',
+    'Skill (.agents/skills/lat-md/SKILL.md)',
+    '  ',
+    ask,
+  );
+  if (skillHash) hashes['.agents/skills/lat-md/SKILL.md'] = skillHash;
+}
+
 // ── Per-agent setup ──────────────────────────────────────────────────
 
 async function setupAgentsMd(
@@ -296,6 +462,7 @@ async function setupClaudeCode(
   template: string,
   hashes: Record<string, string>,
   ask: (message: string) => Promise<boolean>,
+  style: LatCommandStyle,
 ): Promise<void> {
   // CLAUDE.md — written directly (not a symlink)
   const hash = await writeTemplateFile(
@@ -323,8 +490,29 @@ async function setupClaudeCode(
   const settingsPath = join(claudeDir, 'settings.json');
 
   mkdirSync(claudeDir, { recursive: true });
-  syncLatHooks(settingsPath);
+  syncLatHooks(settingsPath, style);
   console.log(chalk.green('  Hooks') + ' synced (UserPromptSubmit + Stop)');
+
+  // .claude/skills/lat-md/SKILL.md — skill for authoring lat.md files
+  console.log('');
+  console.log(
+    chalk.dim(
+      '  The lat-md skill teaches the agent how to write and maintain lat.md/ files.',
+    ),
+  );
+
+  const skillTemplate = readSkillTemplate();
+  const skillHash = await writeTemplateFile(
+    root,
+    latDir,
+    '.claude/skills/lat-md/SKILL.md',
+    skillTemplate,
+    'skill.md',
+    'Skill (.claude/skills/lat-md/SKILL.md)',
+    '  ',
+    ask,
+  );
+  if (skillHash) hashes['.claude/skills/lat-md/SKILL.md'] = skillHash;
 
   // Ensure .claude is gitignored (settings contain local absolute paths)
   ensureGitignored(root, '.claude');
@@ -346,7 +534,7 @@ async function setupClaudeCode(
   if (hasMcpServer(mcpPath, 'mcpServers')) {
     console.log(chalk.green('  MCP server') + ' already configured');
   } else {
-    addMcpServer(mcpPath, 'mcpServers');
+    addMcpServer(mcpPath, 'mcpServers', style);
     console.log(chalk.green('  MCP server') + ' registered in .mcp.json');
   }
 
@@ -359,6 +547,7 @@ async function setupCursor(
   latDir: string,
   hashes: Record<string, string>,
   ask: (message: string) => Promise<boolean>,
+  style: LatCommandStyle,
 ): Promise<void> {
   // .cursor/rules/lat.md
   const hash = await writeTemplateFile(
@@ -390,7 +579,7 @@ async function setupCursor(
   if (hasMcpServer(mcpPath, 'mcpServers')) {
     console.log(chalk.green('  MCP server') + ' already configured');
   } else {
-    addMcpServer(mcpPath, 'mcpServers');
+    addMcpServer(mcpPath, 'mcpServers', style);
     console.log(
       chalk.green('  MCP server') + ' registered in .cursor/mcp.json',
     );
@@ -398,6 +587,9 @@ async function setupCursor(
 
   // Ensure .cursor/mcp.json is gitignored (it contains local absolute paths)
   ensureGitignored(root, '.cursor/mcp.json');
+
+  // .agents/skills/lat-md/SKILL.md — skill for authoring lat.md files
+  await writeAgentsSkill(root, latDir, hashes, ask);
 
   console.log('');
   console.log(
@@ -411,6 +603,7 @@ async function setupCopilot(
   latDir: string,
   hashes: Record<string, string>,
   ask: (message: string) => Promise<boolean>,
+  style: LatCommandStyle,
 ): Promise<void> {
   // .github/copilot-instructions.md
   const hash = await writeTemplateFile(
@@ -442,11 +635,79 @@ async function setupCopilot(
   if (hasMcpServer(mcpPath, 'servers')) {
     console.log(chalk.green('  MCP server') + ' already configured');
   } else {
-    addMcpServer(mcpPath, 'servers');
+    addMcpServer(mcpPath, 'servers', style);
     console.log(
       chalk.green('  MCP server') + ' registered in .vscode/mcp.json',
     );
   }
+
+  // .agents/skills/lat-md/SKILL.md — skill for authoring lat.md files
+  await writeAgentsSkill(root, latDir, hashes, ask);
+}
+
+async function setupPi(
+  root: string,
+  latDir: string,
+  hashes: Record<string, string>,
+  ask: (message: string) => Promise<boolean>,
+  style: LatCommandStyle,
+): Promise<void> {
+  // AGENTS.md — Pi reads this natively
+  // (already created in the shared step if any non-Claude agent is selected)
+
+  // .pi/extensions/lat.ts — extension that registers tools + lifecycle hooks
+  console.log('');
+  console.log(
+    chalk.dim(
+      '  The Pi extension registers lat tools and hooks into the agent lifecycle',
+    ),
+  );
+  console.log(
+    chalk.dim(
+      '  to inject search context and validate lat.md/ before finishing.',
+    ),
+  );
+
+  const template = readPiExtensionTemplate().replace(
+    '__LAT_BIN__',
+    latBinString(style),
+  );
+
+  const hash = await writeTemplateFile(
+    root,
+    latDir,
+    '.pi/extensions/lat.ts',
+    template,
+    'pi-extension.ts',
+    'Extension (.pi/extensions/lat.ts)',
+    '  ',
+    ask,
+  );
+  if (hash) hashes['.pi/extensions/lat.ts'] = hash;
+
+  // .pi/skills/lat-md/SKILL.md — skill for authoring lat.md files
+  console.log('');
+  console.log(
+    chalk.dim(
+      '  The lat-md skill teaches the agent how to write and maintain lat.md/ files.',
+    ),
+  );
+
+  const skillTemplate = readSkillTemplate();
+  const skillHash = await writeTemplateFile(
+    root,
+    latDir,
+    '.pi/skills/lat-md/SKILL.md',
+    skillTemplate,
+    'skill.md',
+    'Skill (.pi/skills/lat-md/SKILL.md)',
+    '  ',
+    ask,
+  );
+  if (skillHash) hashes['.pi/skills/lat-md/SKILL.md'] = skillHash;
+
+  // Ensure .pi is gitignored (extension contains local absolute paths)
+  ensureGitignored(root, '.pi');
 }
 
 // ── LLM key setup ───────────────────────────────────────────────────
@@ -454,26 +715,11 @@ async function setupCopilot(
 async function setupLlmKey(
   rl: ReturnType<typeof createInterface> | null,
 ): Promise<void> {
-  // Check env var first
-  const envKey = process.env.LAT_LLM_KEY;
-  if (envKey) {
+  // Use the centralized key resolution (env var → file → helper → config)
+  const existingKey = getLlmKey();
+  if (existingKey) {
     console.log('');
-    console.log(
-      chalk.green('Semantic search') + ' — LAT_LLM_KEY is set. Ready.',
-    );
-    return;
-  }
-
-  // Check existing config
-  const config = readConfig();
-  const configPath = getConfigPath();
-  if (config.llm_key) {
-    console.log('');
-    console.log(
-      chalk.green('Semantic search') +
-        ' — LLM key configured in ' +
-        chalk.dim(configPath),
-    );
+    console.log(chalk.green('Semantic search') + ' — LLM key found. Ready.');
     return;
   }
 
@@ -563,21 +809,51 @@ async function setupLlmKey(
   }
 
   // Save to config
-  const updatedConfig = { ...config, llm_key: key };
+  const updatedConfig = { ...readConfig(), llm_key: key };
   writeConfig(updatedConfig);
-  console.log(chalk.green('  Key saved') + ' to ' + chalk.dim(configPath));
+  console.log(chalk.green('  Key saved') + ' to ' + chalk.dim(getConfigPath()));
 }
 
 // ── Main init flow ───────────────────────────────────────────────────
 
+export function readLogo(): string {
+  return readFileSync(join(findTemplatesDir(), 'logo.txt'), 'utf-8');
+}
+
 export async function initCmd(targetDir?: string): Promise<void> {
+  console.log(chalk.cyan(readLogo()));
+
+  // Upfront version check — let the user upgrade before proceeding
+  process.stdout.write(chalk.dim('Checking latest version...'));
+  const latest = await fetchLatestVersion();
+  const local = getLocalVersion();
+  if (latest && latest !== local) {
+    console.log(
+      ' ' +
+        chalk.yellow('update available:') +
+        ' ' +
+        local +
+        ' → ' +
+        chalk.green(latest) +
+        ' — run ' +
+        chalk.cyan('npm install -g lat.md') +
+        ' to update.',
+    );
+    console.log('');
+  } else {
+    console.log(' ' + chalk.green(`latest version is used (${local})`));
+  }
+
   const root = resolve(targetDir ?? process.cwd());
   const latDir = join(root, 'lat.md');
 
   const interactive = process.stdin.isTTY ?? false;
-  const rl = interactive
-    ? createInterface({ input: process.stdin, output: process.stdout })
-    : null;
+
+  // Readline is created AFTER the selectMenu loop below.
+  // selectMenu puts stdin into raw mode with its own 'data' listener;
+  // if readline is already attached it receives those raw keypresses,
+  // corrupting its internal state and causing rl.question() to hang/exit.
+  let rl: ReturnType<typeof createInterface> | null = null;
 
   const ask = async (message: string): Promise<boolean> => {
     if (!rl) return true;
@@ -589,9 +865,20 @@ export async function initCmd(targetDir?: string): Promise<void> {
     if (existsSync(latDir)) {
       console.log(chalk.green('lat.md/') + ' already exists');
     } else {
-      if (!(await ask('Create lat.md/ directory?'))) {
-        console.log('Aborted.');
-        return;
+      // No rl yet — selectMenu hasn't run, so use a one-off confirm
+      if (interactive) {
+        const tmpRl = createInterface({
+          input: process.stdin,
+          output: process.stdout,
+        });
+        try {
+          if (!(await confirm(tmpRl, 'Create lat.md/ directory?'))) {
+            console.log('Aborted.');
+            return;
+          }
+        } finally {
+          tmpRl.close();
+        }
       }
       const templateDir = join(findTemplatesDir(), 'init');
       mkdirSync(latDir, { recursive: true });
@@ -599,17 +886,88 @@ export async function initCmd(targetDir?: string): Promise<void> {
       console.log(chalk.green('Created lat.md/'));
     }
 
-    // Step 2: Which coding agents do you use?
-    console.log('');
-    console.log(chalk.bold('Which coding agents do you use?'));
+    // Step 2: Which coding agents do you use? (interactive select menu)
     console.log('');
 
-    const useClaudeCode = await ask('  Claude Code?');
-    const useCursor = await ask('  Cursor?');
-    const useCopilot = await ask('  VS Code Copilot?');
-    const useCodex = await ask('  Codex / OpenCode?');
+    const allAgents: SelectOption[] = [
+      { label: 'Claude Code', value: 'claude' },
+      { label: 'Pi', value: 'pi' },
+      { label: 'Cursor', value: 'cursor' },
+      { label: 'VS Code Copilot', value: 'copilot' },
+      { label: 'Codex / OpenCode', value: 'codex' },
+    ];
 
-    const anySelected = useClaudeCode || useCursor || useCopilot || useCodex;
+    const selectedAgents: string[] = [];
+
+    // Iterative selection: pick agents one at a time until "done"
+    while (true) {
+      const remaining = allAgents.filter(
+        (a) => !selectedAgents.includes(a.value),
+      );
+      const options: SelectOption[] = [
+        {
+          label:
+            selectedAgents.length === 0
+              ? "I don't use any of these"
+              : 'This is it: continue',
+          value: '__done__',
+          accent: true,
+        },
+        ...remaining,
+      ];
+
+      const isFirst = selectedAgents.length === 0;
+      const choice = await selectMenu(
+        options,
+        isFirst ? 'Which coding agent do you use?' : 'Add another agent?',
+        isFirst ? 1 : 0,
+      );
+
+      if (!choice || choice === '__done__') break;
+      selectedAgents.push(choice);
+
+      if (remaining.length === 1) break; // all agents selected
+    }
+
+    const useClaudeCode = selectedAgents.includes('claude');
+    const usePi = selectedAgents.includes('pi');
+    const useCursor = selectedAgents.includes('cursor');
+    const useCopilot = selectedAgents.includes('copilot');
+    const useCodex = selectedAgents.includes('codex');
+
+    const anySelected = selectedAgents.length > 0;
+    const needsLatCommand = useClaudeCode || usePi || useCursor || useCopilot;
+
+    // Step 2b: How should agents run lat?
+    let commandStyle: LatCommandStyle = 'local';
+    if (anySelected && needsLatCommand && interactive) {
+      console.log('');
+      const localBin = resolveLatBin();
+      const styleOptions: SelectOption[] = [
+        { label: 'lat', value: 'global' },
+        { label: localBin, value: 'local' },
+        { label: 'npx lat.md@latest', value: 'npx' },
+      ];
+      const styleChoice = await selectMenu(
+        styleOptions,
+        'How should agents run lat?',
+        0,
+      );
+      if (!styleChoice) {
+        console.log('Aborted.');
+        return;
+      }
+      commandStyle = styleChoice as LatCommandStyle;
+    }
+
+    // Now that selectMenu is done, it's safe to create the readline interface.
+    // selectMenu has restored stdin to its original state (paused, non-raw).
+    if (interactive) {
+      rl = createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+    }
 
     if (!anySelected) {
       console.log('');
@@ -626,7 +984,7 @@ export async function initCmd(targetDir?: string): Promise<void> {
     const fileHashes: Record<string, string> = {};
 
     // Step 3: AGENTS.md (shared by non-Claude agents)
-    const needsAgentsMd = useCursor || useCopilot || useCodex;
+    const needsAgentsMd = usePi || useCursor || useCopilot || useCodex;
     if (needsAgentsMd) {
       await setupAgentsMd(root, latDir, template, fileHashes, ask);
     }
@@ -635,27 +993,39 @@ export async function initCmd(targetDir?: string): Promise<void> {
     if (useClaudeCode) {
       console.log('');
       console.log(chalk.bold('Setting up Claude Code...'));
-      await setupClaudeCode(root, latDir, template, fileHashes, ask);
+      await setupClaudeCode(
+        root,
+        latDir,
+        template,
+        fileHashes,
+        ask,
+        commandStyle,
+      );
+    }
+
+    if (usePi) {
+      console.log('');
+      console.log(chalk.bold('Setting up Pi...'));
+      await setupPi(root, latDir, fileHashes, ask, commandStyle);
     }
 
     if (useCursor) {
       console.log('');
       console.log(chalk.bold('Setting up Cursor...'));
-      await setupCursor(root, latDir, fileHashes, ask);
+      await setupCursor(root, latDir, fileHashes, ask, commandStyle);
     }
 
     if (useCopilot) {
       console.log('');
       console.log(chalk.bold('Setting up VS Code Copilot...'));
-      await setupCopilot(root, latDir, fileHashes, ask);
+      await setupCopilot(root, latDir, fileHashes, ask, commandStyle);
     }
 
     if (useCodex) {
       console.log('');
-      console.log(
-        chalk.bold('Codex / OpenCode') +
-          ' — uses AGENTS.md (already created). No additional setup needed.',
-      );
+      console.log(chalk.bold('Setting up Codex / OpenCode...'));
+      console.log(chalk.dim('  Uses AGENTS.md (already created).'));
+      await writeAgentsSkill(root, latDir, fileHashes, ask);
     }
 
     // Step 5: LLM key setup
