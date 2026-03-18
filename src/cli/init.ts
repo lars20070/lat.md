@@ -816,7 +816,13 @@ async function setupLlmKey(
 
 // ── Main init flow ───────────────────────────────────────────────────
 
+export function readLogo(): string {
+  return readFileSync(join(findTemplatesDir(), 'logo.txt'), 'utf-8');
+}
+
 export async function initCmd(targetDir?: string): Promise<void> {
+  console.log(chalk.cyan(readLogo()));
+
   // Upfront version check — let the user upgrade before proceeding
   process.stdout.write(chalk.dim('Checking latest version...'));
   const latest = await fetchLatestVersion();
