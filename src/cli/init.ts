@@ -903,7 +903,7 @@ export async function initCmd(targetDir?: string): Promise<void> {
           label:
             selectedAgents.length === 0
               ? "I don't use any of these"
-              : 'This is it: exit',
+              : 'This is it: continue',
           value: '__done__',
           accent: true,
         },

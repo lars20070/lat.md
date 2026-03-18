@@ -49,7 +49,7 @@ export async function selectMenu(
         if (selected) {
           if (opt.accent) {
             lines.push(
-              `  ${pointer} ${chalk.bgRed.white.bold(` ${opt.label} `)}`,
+              `  ${pointer} ${chalk.bgGreen.black.bold(` ${opt.label} `)}`,
             );
           } else {
             lines.push(
