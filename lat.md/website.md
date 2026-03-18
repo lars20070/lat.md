@@ -6,4 +6,6 @@ Completely separate from the npm package — has its own `package.json`, `tsconf
 
 ## Current State
 
-Black page with centered monospace ASCII art logo (inlined — Vercel deployments don't have access to the monorepo's `templates/` directory).
+Black page with centered monospace ASCII art logo (inlined — Vercel can't access `templates/`).
+
+Includes a "What's New" changelog (versions 0.5–0.9) with a text-brightness gradient — newest entries are lighter, older ones fade darker.

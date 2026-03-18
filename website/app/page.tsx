@@ -181,38 +181,25 @@ export default function Home() {
               listStyle: 'none',
               fontSize: 14,
               lineHeight: 1.45,
-              color: '#888',
             }}
           >
-            <li style={{ display: 'flex', gap: '1.5ch', paddingLeft: 0, textIndent: 0 }}>
-              <span style={{ color: '#555', flexShrink: 0 }}>0.7</span>
-              <span>
-                Multi-language source links (Rust, Go, C); <Cmd>lat section</Cmd>{' '}
-                and <Cmd>lat expand</Cmd> commands; section structure validation;
-                smarter <Cmd>lat init</Cmd> with versioning &amp; hook sync
-              </span>
-            </li>
-            <li style={{ display: 'flex', gap: '1.5ch', paddingLeft: 0, textIndent: 0 }}>
-              <span style={{ color: '#555', flexShrink: 0 }}>0.6</span>
-              <span>
-                Source code wiki links — reference functions and classes directly
-                from specs: <Cmd>{'[[src/foo.ts#myFunc]]'}</Cmd>
-              </span>
-            </li>
-            <li style={{ display: 'flex', gap: '1.5ch', paddingLeft: 0, textIndent: 0 }}>
-              <span style={{ color: '#555', flexShrink: 0 }}>0.5</span>
-              <span>
-                Auto-suggest <Cmd>lat init</Cmd> when no <Cmd>lat.md/</Cmd> found;
-                section IDs now include h1 heading; wiki links in index files
-              </span>
-            </li>
-            <li style={{ display: 'flex', gap: '1.5ch', paddingLeft: 0, textIndent: 0 }}>
-              <span style={{ color: '#555', flexShrink: 0 }}>0.4</span>
-              <span>
-                MCP server for editor integration; multi-agent <Cmd>lat init</Cmd>;
-                flexible API key config via env, file, or helper command
-              </span>
-            </li>
+            {[
+              { v: '0.9', text: <><Cmd>lat init</Cmd> creates a lat skill for supported agents</> },
+              { v: '0.8', text: <>Pi coding agent integration; interactive arrow-key menus in <Cmd>lat init</Cmd></> },
+              { v: '0.7', text: <>Multi-language source links (Rust, Go, C); <Cmd>lat section</Cmd> and <Cmd>lat expand</Cmd> commands; section structure validation</> },
+              { v: '0.6', text: <>Source code wiki links — reference functions and classes directly from specs: <Cmd>{'[[src/foo.ts#myFunc]]'}</Cmd></> },
+              { v: '0.5', text: <>Auto-suggest <Cmd>lat init</Cmd> when no <Cmd>lat.md/</Cmd> found; section IDs now include h1 heading</> },
+            ].map(({ v, text }, i, arr) => {
+              const t = 1 - i / arr.length
+              const textColor = `rgb(${Math.round(100 + 36 * t)}, ${Math.round(100 + 36 * t)}, ${Math.round(100 + 36 * t)})`
+              const versionColor = `rgb(${Math.round(55 + 30 * t)}, ${Math.round(55 + 30 * t)}, ${Math.round(55 + 30 * t)})`
+              return (
+                <li key={v} style={{ display: 'flex', gap: '1.5ch', paddingLeft: 0, textIndent: 0, color: textColor }}>
+                  <span style={{ color: versionColor, flexShrink: 0 }}>{v}</span>
+                  <span>{text}</span>
+                </li>
+              )
+            })}
           </ul>
         </div>
       </div>
