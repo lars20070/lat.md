@@ -1,13 +1,3 @@
-const logo = `\
-░██             ░██                                ░██
-░██             ░██                                ░██
-░██  ░██████  ░██████       ░█████████████   ░████████
-░██       ░██   ░██         ░██   ░██   ░██ ░██    ░██
-░██  ░███████   ░██         ░██   ░██   ░██ ░██    ░██
-░██ ░██   ░██   ░██         ░██   ░██   ░██ ░██   ░███
-░██  ░█████░██   ░███  ░██  ░██   ░██   ░██  ░█████░██
-`
-
 function Cmd({ children }: { children: React.ReactNode }) {
   return (
     <span
@@ -60,24 +50,22 @@ export default function Home() {
       }}
     >
       {/* Logo */}
-      <pre
-        className="nosel"
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/logo.svg"
+        alt="lat.md"
         style={{
-          fontSize: 'clamp(6px, 1.8vw, 15px)',
-          lineHeight: 1.2,
-          letterSpacing: '0.05em',
-          margin: 0,
-          color: '#ddd',
+          width: '100%',
+          maxWidth: '55ch',
+          height: 'auto',
         }}
-      >
-        {logo}
-      </pre>
+      />
 
       {/* Tagline */}
       <p
         style={{
           color: '#999',
-          fontSize: 18,
+          fontSize: 14,
           textAlign: 'center',
           margin: 0,
           maxWidth: '44ch',
@@ -104,7 +92,7 @@ export default function Home() {
               color: '#999',
             }}
           >
-            <li>* Knowledge base (spec) that evolves in sync with your codebase</li>
+            <li>* Spec that your agent keeps in sync with the codebase</li>
             <li>* Make agents understand big ideas and key business logic</li>
             <li>* Ensure corner cases have proper high-level tests that matter</li>
             <li>* Start reviewing agent diffs: focus on knowledge, not code</li>
@@ -184,11 +172,11 @@ export default function Home() {
             }}
           >
             {[
+              { v: '0.10', text: <><Cmd>lat section</Cmd> and <Cmd>lat refs</Cmd> show source code snippets; ripgrep-powered code scanning</> },
               { v: '0.9', text: <><Cmd>lat init</Cmd> creates a lat skill for supported agents</> },
               { v: '0.8', text: <>Pi coding agent integration; interactive arrow-key menus in <Cmd>lat init</Cmd></> },
               { v: '0.7', text: <>Multi-language source links (Rust, Go, C); <Cmd>lat section</Cmd> and <Cmd>lat expand</Cmd> commands; section structure validation</> },
               { v: '0.6', text: <>Source code wiki links — reference functions and classes directly from specs: <Cmd>{'[[src/foo.ts#myFunc]]'}</Cmd></> },
-              { v: '0.5', text: <>Auto-suggest <Cmd>lat init</Cmd> when no <Cmd>lat.md/</Cmd> found; section IDs now include h1 heading</> },
             ].slice(0, 5).map(({ v, text }, i, arr) => {
               const t = 1 - i / (arr.length - 1 || 1)
               const c = Math.round(80 + 73 * t)
@@ -197,7 +185,7 @@ export default function Home() {
               const versionColor = `rgb(${vc}, ${vc}, ${vc})`
               return (
                 <li key={v} style={{ display: 'flex', gap: '1.5ch', paddingLeft: 0, textIndent: 0, color: textColor }}>
-                  <span style={{ color: versionColor, flexShrink: 0 }}>{v}</span>
+                  <span style={{ color: versionColor, flexShrink: 0, minWidth: '4ch', textAlign: 'right' }}>{v}</span>
                   <span>{text}</span>
                 </li>
               )

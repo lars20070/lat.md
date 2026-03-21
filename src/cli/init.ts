@@ -1041,6 +1041,20 @@ export async function initCmd(targetDir?: string): Promise<void> {
         chalk.cyan('lat check') +
         ' to validate your setup.',
     );
+
+    // Suggest ripgrep if not available
+    const { hasRipgrep } = await import('../code-refs.js');
+    if (!(await hasRipgrep())) {
+      console.log('');
+      console.log(
+        chalk.yellow('Tip:') +
+          ' Install ' +
+          chalk.cyan('ripgrep') +
+          ' (rg) for faster code scanning.' +
+          ' See ' +
+          chalk.underline('https://github.com/BurntSushi/ripgrep#installation'),
+      );
+    }
   } finally {
     rl?.close();
   }

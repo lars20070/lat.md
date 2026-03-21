@@ -200,16 +200,17 @@ export async function checkCodeRefs(latticeDir: string): Promise<CheckResult> {
       fileIndex,
     );
     mentionedSections.add(resolved.toLowerCase());
+    const displayPath = relative(process.cwd(), join(projectRoot, ref.file));
     if (ambiguous) {
       errors.push({
-        file: ref.file,
+        file: displayPath,
         line: ref.line,
         target: ref.target,
         message: ambiguousMessage(ref.target, ambiguous, suggested),
       });
     } else if (!sectionIds.has(resolved.toLowerCase())) {
       errors.push({
-        file: ref.file,
+        file: displayPath,
         line: ref.line,
         target: ref.target,
         message: `@lat: [[${ref.target}]] — no matching section found`,
@@ -482,10 +483,12 @@ function formatErrorCount(count: number, s: Styler): string {
 // --- Unified command functions ---
 
 export async function checkAllCommand(ctx: CmdContext): Promise<CmdResult> {
+  const startTime = Date.now();
   const md = await checkMd(ctx.latDir);
   const code = await checkCodeRefs(ctx.latDir);
   const indexErrors = await checkIndex(ctx.latDir);
   const sectionErrors = await checkSections(ctx.latDir);
+  const elapsed = Date.now() - startTime;
 
   const allErrors = [...md.errors, ...code.errors];
   const allFiles: FileStats = { ...md.files };
@@ -494,7 +497,11 @@ export async function checkAllCommand(ctx: CmdContext): Promise<CmdResult> {
   }
 
   const s = ctx.styler;
-  const lines: string[] = [formatFileStats(allFiles, s)];
+  const elapsedStr =
+    elapsed < 1000 ? `${elapsed}ms` : `${(elapsed / 1000).toFixed(1)}s`;
+  const lines: string[] = [
+    formatFileStats(allFiles, s) + s.dim(` in ${elapsedStr}`),
+  ];
 
   // Init version warning first — user should fix setup before addressing errors
   const storedVersion = readInitVersion(ctx.latDir);
@@ -548,6 +555,20 @@ export async function checkAllCommand(ctx: CmdContext): Promise<CmdResult> {
         s.cyan('lat init') +
         ' to configure.',
     );
+  }
+
+  // Suggest ripgrep if check was slow (>1s) and rg is not available
+  if (elapsed > 1000) {
+    const { hasRipgrep } = await import('../code-refs.js');
+    if (!(await hasRipgrep())) {
+      lines.push(
+        s.yellow('Tip:') +
+          ' Install ' +
+          s.cyan('ripgrep') +
+          ' (rg) for faster code scanning.' +
+          ' See https://github.com/BurntSushi/ripgrep#installation',
+      );
+    }
   }
 
   return { output: lines.join('\n') };

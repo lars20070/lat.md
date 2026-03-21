@@ -1,9 +1,13 @@
-# lat.md
+<p align="center">
+  <img src="templates/logo-dark.svg" alt="lat.md" width="500">
+</p>
 
-[![CI](https://github.com/1st1/lat.md/actions/workflows/ci.yml/badge.svg)](https://github.com/1st1/lat.md/actions/workflows/ci.yml)
-[![npm](https://img.shields.io/npm/v/lat.md)](https://www.npmjs.com/package/lat.md)
+<p align="center">
+  <a href="https://github.com/1st1/lat.md/actions/workflows/ci.yml"><img src="https://github.com/1st1/lat.md/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://www.npmjs.com/package/lat.md"><img src="https://img.shields.io/npm/v/lat.md" alt="npm"></a>
+</p>
 
-A knowledge graph for your codebase, written in markdown.
+<p align="center">A knowledge graph for your codebase, written in markdown.</p>
 
 ## The problem
 
@@ -27,9 +31,7 @@ The result is a structured knowledge base that:
 npm install -g lat.md
 ```
 
-Or use directly with `npx lat.md@latest <command>`.
-
-After installing, run `lat init` in the repo you want to use lat in.
+Then run `lat init` in the repo you want to use lat in.
 
 ## How it works
 
@@ -50,13 +52,14 @@ my-project/
 ## CLI
 
 ```bash
-npx lat.md init                        # scaffold a lat.md/ directory
-npx lat.md check                       # validate all wiki links and code refs
-npx lat.md locate "OAuth Flow"         # find sections by name (exact, fuzzy)
-npx lat.md section "auth#OAuth Flow"   # show a section with its links and refs
-npx lat.md refs "auth#OAuth Flow"      # find what references a section
-npx lat.md search "how do we auth?"    # semantic search via embeddings
-npx lat.md expand "fix [[OAuth Flow]]" # expand [[refs]] in a prompt for agents
+lat init                        # scaffold a lat.md/ directory
+lat check                       # validate all wiki links and code refs
+lat locate "OAuth Flow"         # find sections by name (exact, fuzzy)
+lat section "auth#OAuth Flow"   # show a section with its links and refs
+lat refs "auth#OAuth Flow"      # find what references a section
+lat search "how do we auth?"    # semantic search via embeddings
+lat expand "fix [[OAuth Flow]]" # expand [[refs]] in a prompt for agents
+lat mcp                         # start MCP server for editor integration
 ```
 
 ## Configuration

@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { join, relative } from 'node:path';
+import { extname, join, relative } from 'node:path';
 import {
   loadAllSections,
   findSections,
@@ -11,15 +11,32 @@ import {
   type Section,
   type SectionMatch,
 } from '../lattice.js';
+import { scanCodeRefs } from '../code-refs.js';
+import { SOURCE_EXTENSIONS, resolveSourceSymbol } from '../source-parser.js';
 import type { CmdContext, CmdResult } from '../context.js';
 import { formatSectionId, formatNavHints } from '../format.js';
+
+export type CodeBackRef = {
+  file: string;
+  line: number;
+  snippet: string;
+};
+
+export type SourceRef = {
+  target: string;
+  file: string;
+  line: number;
+  snippet: string;
+};
 
 export type SectionFound = {
   kind: 'found';
   section: Section;
   content: string;
   outgoingRefs: { target: string; resolved: Section }[];
+  outgoingSourceRefs: SourceRef[];
   incomingRefs: SectionMatch[];
+  codeRefs: CodeBackRef[];
 };
 
 export type SectionResult =
@@ -71,9 +88,60 @@ export async function getSection(
   const sectionId = section.id.toLowerCase();
 
   const outgoingRefs: { target: string; resolved: Section }[] = [];
+  const outgoingSourceRefs: SourceRef[] = [];
   const seen = new Set<string>();
   for (const ref of sectionRefs) {
     if (ref.fromSection.toLowerCase() !== sectionId) continue;
+    // Detect source code references by file extension
+    const hashIdx = ref.target.indexOf('#');
+    const filePart = hashIdx === -1 ? ref.target : ref.target.slice(0, hashIdx);
+    const ext = extname(filePart);
+    if (SOURCE_EXTENSIONS.has(ext)) {
+      const targetLower = ref.target.toLowerCase();
+      if (!seen.has(targetLower)) {
+        seen.add(targetLower);
+        const symbolPart = hashIdx === -1 ? '' : ref.target.slice(hashIdx + 1);
+        let line = 0;
+        let snippet = '';
+        if (symbolPart) {
+          const { found, symbols } = await resolveSourceSymbol(
+            filePart,
+            symbolPart,
+            ctx.projectRoot,
+          );
+          if (found) {
+            const parts = symbolPart.split('#');
+            const sym = symbols.find((s) =>
+              parts.length === 1
+                ? s.name === parts[0] && !s.parent
+                : s.name === parts[1] && s.parent === parts[0],
+            );
+            if (sym) {
+              line = sym.startLine;
+              try {
+                const src = await readFile(
+                  join(ctx.projectRoot, filePart),
+                  'utf-8',
+                );
+                const srcLines = src.split('\n');
+                const start = sym.startLine - 1;
+                const end = Math.min(srcLines.length, start + 5);
+                snippet = srcLines.slice(start, end).join('\n');
+              } catch {
+                // file unreadable
+              }
+            }
+          }
+        }
+        outgoingSourceRefs.push({
+          target: ref.target,
+          file: filePart,
+          line,
+          snippet,
+        });
+      }
+      continue;
+    }
     const { resolved } = resolveRef(ref.target, sectionIds, fileIndex);
     const resolvedLower = resolved.toLowerCase();
     if (seen.has(resolvedLower)) continue;
@@ -113,7 +181,40 @@ export async function getSection(
     }
   }
 
-  return { kind: 'found', section, content, outgoingRefs, incomingRefs };
+  // Find code back-references: @lat: comments pointing to this section
+  const codeRefs: CodeBackRef[] = [];
+  const { refs: scannedRefs } = await scanCodeRefs(ctx.projectRoot);
+  for (const ref of scannedRefs) {
+    const { resolved: codeResolved } = resolveRef(
+      ref.target,
+      sectionIds,
+      fileIndex,
+    );
+    if (codeResolved.toLowerCase() === sectionId) {
+      const absFile = join(ctx.projectRoot, ref.file);
+      let snippet = '';
+      try {
+        const src = await readFile(absFile, 'utf-8');
+        const srcLines = src.split('\n');
+        const start = Math.max(0, ref.line - 1 - 2);
+        const end = Math.min(srcLines.length, ref.line - 1 + 3);
+        snippet = srcLines.slice(start, end).join('\n');
+      } catch {
+        // file unreadable — skip snippet
+      }
+      codeRefs.push({ file: ref.file, line: ref.line, snippet });
+    }
+  }
+
+  return {
+    kind: 'found',
+    section,
+    content,
+    outgoingRefs,
+    outgoingSourceRefs,
+    incomingRefs,
+    codeRefs,
+  };
 }
 
 function fullEndLine(section: Section): number {
@@ -133,7 +234,14 @@ export function formatSectionOutput(
   result: SectionFound,
 ): string {
   const s = ctx.styler;
-  const { section, content, outgoingRefs, incomingRefs } = result;
+  const {
+    section,
+    content,
+    outgoingRefs,
+    outgoingSourceRefs,
+    incomingRefs,
+    codeRefs,
+  } = result;
   const relPath = relative(
     process.cwd(),
     join(ctx.projectRoot, section.filePath),
@@ -151,7 +259,7 @@ export function formatSectionOutput(
     quoted,
   ];
 
-  if (outgoingRefs.length > 0) {
+  if (outgoingRefs.length > 0 || outgoingSourceRefs.length > 0) {
     parts.push('', '## This section references:', '');
     for (const ref of outgoingRefs) {
       const body = ref.resolved.firstParagraph
@@ -160,6 +268,18 @@ export function formatSectionOutput(
       parts.push(
         `${s.dim('*')} [[${formatSectionId(ref.resolved.id, s)}]]${body}`,
       );
+    }
+    for (const ref of outgoingSourceRefs) {
+      const loc = ref.line
+        ? `${s.dim(` (${ref.file}:${ref.line})`)}`
+        : `${s.dim(` (${ref.file})`)}`;
+      parts.push(`${s.dim('*')} [[${s.cyan(ref.target)}]]${loc}`);
+      if (ref.snippet) {
+        const snippetLines = ref.snippet.split('\n');
+        for (const line of snippetLines) {
+          parts.push(`  ${s.dim('|')} ${line}`);
+        }
+      }
     }
   }
 
@@ -172,6 +292,25 @@ export function formatSectionOutput(
       parts.push(
         `${s.dim('*')} [[${formatSectionId(ref.section.id, s)}]]${body}`,
       );
+    }
+  }
+
+  if (codeRefs.length > 0) {
+    parts.push('', '## Referenced by code:', '');
+    for (const ref of codeRefs) {
+      const codeRelPath = relative(
+        process.cwd(),
+        join(ctx.projectRoot, ref.file),
+      );
+      parts.push(
+        `${s.dim('*')} ${s.cyan(codeRelPath)}${s.dim(`:${ref.line}`)}`,
+      );
+      if (ref.snippet) {
+        const snippetLines = ref.snippet.split('\n');
+        for (const line of snippetLines) {
+          parts.push(`  ${s.dim('|')} ${line}`);
+        }
+      }
     }
   }
 
