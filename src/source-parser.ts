@@ -522,8 +522,16 @@ function extractGoSymbols(tree: Tree): SourceSymbol[] {
  * Handles plain identifiers and pointer declarators (*name).
  */
 function cFuncName(declarator: SyntaxNode): string | null {
-  if (declarator.type === 'function_declarator') {
-    const inner = declarator.childForFieldName('declarator');
+  // Unwrap pointer_declarator layers (for functions returning pointers,
+  // e.g. `JSRuntime *JS_NewRuntime(void)` → pointer_declarator > function_declarator)
+  let node = declarator;
+  while (node.type === 'pointer_declarator') {
+    const child = node.childForFieldName('declarator');
+    if (!child) return null;
+    node = child;
+  }
+  if (node.type === 'function_declarator') {
+    const inner = node.childForFieldName('declarator');
     if (!inner) return null;
     if (inner.type === 'identifier') return inner.text;
     if (inner.type === 'pointer_declarator') {
@@ -552,6 +560,12 @@ function cVarName(declarator: SyntaxNode): string | null {
     if (!inner) return null;
     node = inner;
   }
+  // Unwrap array_declarator (e.g. `char js_version[]`)
+  if (node.type === 'array_declarator') {
+    const inner = node.childForFieldName('declarator');
+    if (!inner) return null;
+    node = inner;
+  }
   if (node.type === 'identifier') return node.text;
   if (node.type === 'pointer_declarator') {
     let cur = node;
@@ -572,8 +586,13 @@ function extractCSymbols(tree: Tree): SourceSymbol[] {
 }
 
 /**
- * Walk C AST nodes, collecting symbols. Recurses into preproc_ifdef /
- * preproc_ifndef blocks so header include guards don't hide declarations.
+ * Walk C AST nodes, collecting symbols. Recurses into preprocessor
+ * conditional blocks (ifdef/ifndef/if), linkage specifications
+ * (extern "C" { ... }), and declaration lists so that include guards
+ * and conditional compilation don't hide declarations.
+ *
+ * For #if/#ifdef/#ifndef, only the "then" branch is traversed —
+ * preproc_else and preproc_elif children are skipped.
  */
 function collectCNodes(parent: SyntaxNode, symbols: SourceSymbol[]): void {
   for (let i = 0; i < parent.childCount; i++) {
@@ -616,7 +635,12 @@ function collectCNodes(parent: SyntaxNode, symbols: SourceSymbol[]): void {
         });
       }
     } else if (node.type === 'type_definition') {
-      const declarator = node.childForFieldName('declarator');
+      let declarator = node.childForFieldName('declarator');
+      // Unwrap pointer_declarator for pointer typedefs
+      // e.g. `typedef struct __JSValue *JSValue;`
+      while (declarator?.type === 'pointer_declarator') {
+        declarator = declarator.childForFieldName('declarator') ?? null;
+      }
       const name =
         declarator?.type === 'type_identifier' ? declarator.text : null;
       if (name) {
@@ -630,17 +654,33 @@ function collectCNodes(parent: SyntaxNode, symbols: SourceSymbol[]): void {
       }
     } else if (node.type === 'declaration') {
       const declarator = node.childForFieldName('declarator');
-      const name = declarator ? cVarName(declarator) : null;
-      if (name) {
+      // Try as function declaration first (e.g. `void greet(const char *name);`
+      // in headers), then fall back to variable.
+      const funcName = declarator ? cFuncName(declarator) : null;
+      if (funcName) {
         symbols.push({
-          name,
-          kind: 'variable',
+          name: funcName,
+          kind: 'function',
           startLine,
           endLine,
           signature: firstLine(node.text),
         });
+      } else {
+        const name = declarator ? cVarName(declarator) : null;
+        if (name) {
+          symbols.push({
+            name,
+            kind: 'variable',
+            startLine,
+            endLine,
+            signature: firstLine(node.text),
+          });
+        }
       }
-    } else if (node.type === 'preproc_def') {
+    } else if (
+      node.type === 'preproc_def' ||
+      node.type === 'preproc_function_def'
+    ) {
       const name = extractName(node);
       if (name) {
         symbols.push({
@@ -653,10 +693,21 @@ function collectCNodes(parent: SyntaxNode, symbols: SourceSymbol[]): void {
       }
     } else if (
       node.type === 'preproc_ifdef' ||
-      node.type === 'preproc_ifndef'
+      node.type === 'preproc_ifndef' ||
+      node.type === 'preproc_if'
     ) {
-      // Recurse into include guard / conditional blocks
+      // Recurse into conditional blocks (then-branch only).
+      // preproc_else / preproc_elif children are skipped.
       collectCNodes(node, symbols);
+    } else if (
+      node.type === 'linkage_specification' ||
+      node.type === 'declaration_list'
+    ) {
+      // extern "C" { ... } wraps declarations in linkage_specification
+      // containing a declaration_list — recurse through both.
+      collectCNodes(node, symbols);
+    } else if (node.type === 'preproc_else' || node.type === 'preproc_elif') {
+      // Skip else/elif branches of preprocessor conditionals.
     }
   }
 }
@@ -679,19 +730,36 @@ export async function parseSourceSymbols(
   const tree = p.parse(content);
   if (!tree) return [];
 
-  if (ext === '.py') {
-    return extractPySymbols(tree);
+  try {
+    if (ext === '.py') {
+      return extractPySymbols(tree);
+    }
+    if (ext === '.rs') {
+      return extractRustSymbols(tree);
+    }
+    if (ext === '.go') {
+      return extractGoSymbols(tree);
+    }
+    if (ext === '.c' || ext === '.h') {
+      return extractCSymbols(tree);
+    }
+    return extractTsSymbols(tree);
+  } finally {
+    tree.delete();
   }
-  if (ext === '.rs') {
-    return extractRustSymbols(tree);
-  }
-  if (ext === '.go') {
-    return extractGoSymbols(tree);
-  }
-  if (ext === '.c' || ext === '.h') {
-    return extractCSymbols(tree);
-  }
-  return extractTsSymbols(tree);
+}
+
+// Per-invocation cache for parsed source symbols, keyed by absolute file path.
+// Prevents re-parsing the same file when multiple wiki links reference it
+// (e.g. 20+ links to quickjs.c would otherwise parse a 60K-line file 20 times).
+const symbolCache = new Map<
+  string,
+  { symbols: SourceSymbol[]; error?: string }
+>();
+
+/** Clear the symbol cache. Call between top-level operations. */
+export function clearSymbolCache(): void {
+  symbolCache.clear();
 }
 
 /**
@@ -704,23 +772,35 @@ export async function resolveSourceSymbol(
   projectRoot: string,
 ): Promise<{ found: boolean; symbols: SourceSymbol[]; error?: string }> {
   const absPath = join(projectRoot, filePath);
-  let content: string;
-  try {
-    content = readFileSync(absPath, 'utf-8');
-  } catch {
-    return { found: false, symbols: [] };
+
+  let cached = symbolCache.get(absPath);
+  if (!cached) {
+    let content: string;
+    try {
+      content = readFileSync(absPath, 'utf-8');
+    } catch {
+      cached = { symbols: [] };
+      symbolCache.set(absPath, cached);
+      return { found: false, symbols: [] };
+    }
+
+    try {
+      const symbols = await parseSourceSymbols(filePath, content);
+      cached = { symbols };
+    } catch (err) {
+      cached = {
+        symbols: [],
+        error: `failed to parse "${filePath}": ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+    symbolCache.set(absPath, cached);
   }
 
-  let symbols: SourceSymbol[];
-  try {
-    symbols = await parseSourceSymbols(filePath, content);
-  } catch (err) {
-    return {
-      found: false,
-      symbols: [],
-      error: `failed to parse "${filePath}": ${err instanceof Error ? err.message : String(err)}`,
-    };
+  if (cached.error) {
+    return { found: false, symbols: cached.symbols, error: cached.error };
   }
+
+  const { symbols } = cached;
   const parts = symbolPath.split('#');
 
   if (parts.length === 1) {
