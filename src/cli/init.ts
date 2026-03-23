@@ -14,6 +14,7 @@ import {
   readAgentsTemplate,
   readCursorRulesTemplate,
   readPiExtensionTemplate,
+  readOpenCodePluginTemplate,
   readSkillTemplate,
 } from './gen.js';
 import {
@@ -140,8 +141,12 @@ function styledMcpCommand(style: LatCommandStyle): {
 // ── Claude Code helpers ──────────────────────────────────────────────
 
 /** Derive the hook command prefix for the given command style. */
-function latHookCommand(style: LatCommandStyle, event: string): string {
-  return `${latBinString(style)} hook claude ${event}`;
+function latHookCommand(
+  style: LatCommandStyle,
+  agent: 'claude' | 'cursor',
+  event: string,
+): string {
+  return `${latBinString(style)} hook ${agent} ${event}`;
 }
 
 type HookEntry = { hooks?: { type?: string; command?: string }[] };
@@ -199,11 +204,28 @@ function syncLatHooks(settingsPath: string, style: LatCommandStyle): void {
       hooks[event] = [];
     }
     (hooks[event] as unknown[]).push({
-      hooks: [{ type: 'command', command: latHookCommand(style, event) }],
+      hooks: [
+        { type: 'command', command: latHookCommand(style, 'claude', event) },
+      ],
     });
   }
 
   writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
+}
+
+function cursorHooksTemplate(style: LatCommandStyle): string {
+  return (
+    JSON.stringify(
+      {
+        version: 1,
+        hooks: {
+          stop: [{ command: latHookCommand(style, 'cursor', 'stop') }],
+        },
+      },
+      null,
+      2,
+    ) + '\n'
+  );
 }
 
 // ── Gitignore helper ─────────────────────────────────────────────────
@@ -339,6 +361,55 @@ function addMcpServer(
   writeFileSync(configPath, JSON.stringify(cfg, null, 2) + '\n');
 }
 
+// ── Codex TOML MCP helpers ────────────────────────────────────────────
+
+/**
+ * Check whether `.codex/config.toml` already contains an `[mcp_servers.lat]`
+ * table.  We use a simple regex match — no TOML parser needed.
+ */
+function hasCodexMcpServer(configPath: string): boolean {
+  if (!existsSync(configPath)) return false;
+  try {
+    const content = readFileSync(configPath, 'utf-8');
+    return /^\[mcp_servers\.lat\]/m.test(content);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Append an `[mcp_servers.lat]` table to `.codex/config.toml`.
+ *
+ * If the file exists, the block is appended (preserving existing content).
+ * If the file doesn't exist, it is created with just the MCP block.
+ *
+ * The TOML format is intentionally simple — Codex expects:
+ *
+ * ```toml
+ * [mcp_servers.lat]
+ * command = "lat"
+ * args = ["mcp"]
+ * ```
+ */
+function addCodexMcpServer(configPath: string, style: LatCommandStyle): void {
+  const cmd = styledMcpCommand(style);
+
+  // Format args as a TOML inline array of quoted strings
+  const argsToml = '[' + cmd.args.map((a) => `"${a}"`).join(', ') + ']';
+  const block = `[mcp_servers.lat]\ncommand = "${cmd.command}"\nargs = ${argsToml}\n`;
+
+  mkdirSync(join(configPath, '..'), { recursive: true });
+
+  if (existsSync(configPath)) {
+    let content = readFileSync(configPath, 'utf-8');
+    if (!content.endsWith('\n')) content += '\n';
+    content += '\n' + block;
+    writeFileSync(configPath, content);
+  } else {
+    writeFileSync(configPath, block);
+  }
+}
+
 // ── Template file helpers ─────────────────────────────────────────────
 
 /**
@@ -352,7 +423,7 @@ async function writeTemplateFile(
   latDir: string,
   relPath: string,
   template: string,
-  genTarget: string,
+  genTarget: string | null,
   label: string,
   indent: string,
   ask: (message: string) => Promise<boolean>,
@@ -397,10 +468,15 @@ async function writeTemplateFile(
   }
 
   console.log(
-    chalk.dim(`${indent}Kept existing file.`) +
-      ' Run ' +
-      chalk.cyan(`lat gen ${genTarget}`) +
-      ' to see the latest template.',
+    genTarget
+      ? chalk.dim(`${indent}Kept existing file.`) +
+          ' Run ' +
+          chalk.cyan(`lat gen ${genTarget}`) +
+          ' to see the latest template.'
+      : chalk.dim(`${indent}Kept existing file.`) +
+          ' Re-run ' +
+          chalk.cyan('lat init') +
+          ' to regenerate this file.',
   );
   return null;
 }
@@ -562,6 +638,31 @@ async function setupCursor(
   );
   if (hash) hashes['.cursor/rules/lat.md'] = hash;
 
+  // .cursor/hooks.json
+  console.log('');
+  console.log(
+    chalk.dim(
+      '  Cursor hooks can enforce the lat.md/ stop check, while prompt guidance',
+    ),
+  );
+  console.log(
+    chalk.dim(
+      '  stays in rules + MCP because Cursor cannot reliably inject prompt-specific context.',
+    ),
+  );
+
+  const hooksHash = await writeTemplateFile(
+    root,
+    latDir,
+    '.cursor/hooks.json',
+    cursorHooksTemplate(style),
+    null,
+    'Hooks (.cursor/hooks.json)',
+    '  ',
+    ask,
+  );
+  if (hooksHash) hashes['.cursor/hooks.json'] = hooksHash;
+
   // .cursor/mcp.json
   console.log('');
   console.log(
@@ -585,8 +686,8 @@ async function setupCursor(
     );
   }
 
-  // Ensure .cursor/mcp.json is gitignored (it contains local absolute paths)
-  ensureGitignored(root, '.cursor/mcp.json');
+  // Ensure .cursor is gitignored (hooks and MCP config may contain local paths)
+  ensureGitignored(root, '.cursor');
 
   // .agents/skills/lat-md/SKILL.md — skill for authoring lat.md files
   await writeAgentsSkill(root, latDir, hashes, ask);
@@ -708,6 +809,112 @@ async function setupPi(
 
   // Ensure .pi is gitignored (extension contains local absolute paths)
   ensureGitignored(root, '.pi');
+}
+
+async function setupOpenCode(
+  root: string,
+  latDir: string,
+  hashes: Record<string, string>,
+  ask: (message: string) => Promise<boolean>,
+  style: LatCommandStyle,
+): Promise<void> {
+  // AGENTS.md — OpenCode reads this natively
+  // (already created in the shared step if any non-Claude agent is selected)
+
+  // .opencode/plugins/lat.ts — plugin that registers tools + lifecycle hooks
+  console.log('');
+  console.log(
+    chalk.dim(
+      '  The OpenCode plugin registers lat tools and hooks into the session',
+    ),
+  );
+  console.log(
+    chalk.dim('  lifecycle to validate lat.md/ when the agent finishes.'),
+  );
+
+  const template = readOpenCodePluginTemplate().replace(
+    '__LAT_BIN__',
+    latBinString(style),
+  );
+
+  const hash = await writeTemplateFile(
+    root,
+    latDir,
+    '.opencode/plugins/lat.ts',
+    template,
+    'opencode-plugin.ts',
+    'Plugin (.opencode/plugins/lat.ts)',
+    '  ',
+    ask,
+  );
+  if (hash) hashes['.opencode/plugins/lat.ts'] = hash;
+
+  // .agents/skills/lat-md/SKILL.md — skill for authoring lat.md files
+  await writeAgentsSkill(root, latDir, hashes, ask);
+
+  // Ensure .opencode is gitignored (plugin contains local absolute paths)
+  ensureGitignored(root, '.opencode');
+}
+
+async function setupCodex(
+  root: string,
+  latDir: string,
+  hashes: Record<string, string>,
+  ask: (message: string) => Promise<boolean>,
+  style: LatCommandStyle,
+): Promise<void> {
+  // AGENTS.md — Codex reads this natively
+  // (already created in the shared step if any non-Claude agent is selected)
+
+  // .codex/config.toml — MCP server registration
+  console.log('');
+  console.log(
+    chalk.dim(
+      '  Agents can call `lat` from the command line, but an MCP server gives lat',
+    ),
+  );
+  console.log(
+    chalk.dim(
+      '  more visibility and makes agents more likely to use it proactively.',
+    ),
+  );
+
+  const mcpPath = join(root, '.codex', 'config.toml');
+  if (hasCodexMcpServer(mcpPath)) {
+    console.log(chalk.green('  MCP server') + ' already configured');
+  } else {
+    addCodexMcpServer(mcpPath, style);
+    console.log(
+      chalk.green('  MCP server') + ' registered in .codex/config.toml',
+    );
+  }
+
+  // Ensure .codex is gitignored (config contains local absolute paths)
+  ensureGitignored(root, '.codex');
+
+  // .agents/skills/lat-md/SKILL.md — skill for authoring lat.md files
+  await writeAgentsSkill(root, latDir, hashes, ask);
+
+  // .codex/skills/lat-md/SKILL.md — Codex-specific skills directory
+  console.log('');
+  console.log(
+    chalk.dim(
+      '  The lat-md skill teaches the agent how to write and maintain lat.md/ files.',
+    ),
+  );
+
+  const skillTemplate = readSkillTemplate();
+  const skillHash = await writeTemplateFile(
+    root,
+    latDir,
+    '.codex/skills/lat-md/SKILL.md',
+    skillTemplate,
+    'skill.md',
+    'Skill (.codex/skills/lat-md/SKILL.md)',
+    '  ',
+    ask,
+  );
+  if (skillHash) hashes['.codex/skills/lat-md/SKILL.md'] = skillHash;
 }
 
 // ── LLM key setup ───────────────────────────────────────────────────
@@ -894,7 +1101,8 @@ export async function initCmd(targetDir?: string): Promise<void> {
       { label: 'Pi', value: 'pi' },
       { label: 'Cursor', value: 'cursor' },
       { label: 'VS Code Copilot', value: 'copilot' },
-      { label: 'Codex / OpenCode', value: 'codex' },
+      { label: 'OpenCode', value: 'opencode' },
+      { label: 'Codex', value: 'codex' },
     ];
 
     const selectedAgents: string[] = [];
@@ -933,10 +1141,17 @@ export async function initCmd(targetDir?: string): Promise<void> {
     const usePi = selectedAgents.includes('pi');
     const useCursor = selectedAgents.includes('cursor');
     const useCopilot = selectedAgents.includes('copilot');
+    const useOpenCode = selectedAgents.includes('opencode');
     const useCodex = selectedAgents.includes('codex');
 
     const anySelected = selectedAgents.length > 0;
-    const needsLatCommand = useClaudeCode || usePi || useCursor || useCopilot;
+    const needsLatCommand =
+      useClaudeCode ||
+      usePi ||
+      useCursor ||
+      useCopilot ||
+      useOpenCode ||
+      useCodex;
 
     // Step 2b: How should agents run lat?
     let commandStyle: LatCommandStyle = 'local';
@@ -984,7 +1199,8 @@ export async function initCmd(targetDir?: string): Promise<void> {
     const fileHashes: Record<string, string> = {};
 
     // Step 3: AGENTS.md (shared by non-Claude agents)
-    const needsAgentsMd = usePi || useCursor || useCopilot || useCodex;
+    const needsAgentsMd =
+      usePi || useCursor || useCopilot || useOpenCode || useCodex;
     if (needsAgentsMd) {
       await setupAgentsMd(root, latDir, template, fileHashes, ask);
     }
@@ -1021,11 +1237,16 @@ export async function initCmd(targetDir?: string): Promise<void> {
       await setupCopilot(root, latDir, fileHashes, ask, commandStyle);
     }
 
+    if (useOpenCode) {
+      console.log('');
+      console.log(chalk.bold('Setting up OpenCode...'));
+      await setupOpenCode(root, latDir, fileHashes, ask, commandStyle);
+    }
+
     if (useCodex) {
       console.log('');
-      console.log(chalk.bold('Setting up Codex / OpenCode...'));
-      console.log(chalk.dim('  Uses AGENTS.md (already created).'));
-      await writeAgentsSkill(root, latDir, fileHashes, ask);
+      console.log(chalk.bold('Setting up Codex...'));
+      await setupCodex(root, latDir, fileHashes, ask, commandStyle);
     }
 
     // Step 5: LLM key setup

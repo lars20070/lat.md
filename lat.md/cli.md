@@ -27,9 +27,10 @@ Show a section's full content including all subsections, along with outgoing and
 Accepts any valid section id (short-form, full-path, with or without `[[brackets]]`). Uses the same resolution logic as [[cli#refs]].
 
 Output:
+
 1. Section header with id and file location
 2. Section content blockquoted (`>`) from `startLine` through the end of the last descendant subsection
-3. **This section references** — all wiki link targets found within the section, including both lat.md section refs (with body descriptions) and source code refs (with file location and a 5-line snippet centered on the symbol)
+3. **This section references** — all wiki link targets found within the section, including both lat.md section refs (with body descriptions) and source code refs (with file path and line range, e.g. `file.ts:10-25`, plus a 5-line snippet centered on the symbol)
 4. **Referenced by** — other sections in `lat.md/` that contain wiki links pointing to this section
 5. **Referenced by code** — source files containing `@lat:` comments that reference this section, each shown with file path, line number, and a 5-line snippet centered on the reference
 6. **Navigation hints** — same footer as [[cli#search]], suggesting `lat section` and `lat search` as next steps
@@ -75,6 +76,7 @@ Validate that all [[parser#Wiki Links]] in `lat.md` markdown files point to exis
 ### code-refs
 
 Two validations:
+
 1. Every `// @lat: [[...]]` or `# @lat: [[...]]` comment in source code must point to a real section in `lat.md/`
 2. For files with [[markdown#Frontmatter#require-code-mention]], every leaf section must be referenced by at least one `// @lat:` comment in the codebase
 
@@ -94,6 +96,7 @@ Validate directory index files. Every directory inside `lat.md/` (including the 
 Each index file must contain a bullet list covering every visible file and subdirectory with a one-sentence description, using wiki links: `- [[name]] — description`. File entries omit the `.md` extension (e.g. `[[cli]]` not `[[cli.md]]`). Root example: `lat.md/lat.md`; subdirectory example: `lat.md/api/api.md`.
 
 Four checks:
+
 1. **Non-markdown files** — any file without a `.md` extension is flagged as an error (only markdown belongs in `lat.md/`)
 2. **Missing index file** — errors with a ready-to-copy bullet list snippet
 3. **Missing entries** — index file exists but doesn't list all visible entries
@@ -110,6 +113,7 @@ Expand `[[refs]]` in text to resolved `lat.md` section paths with location conte
 Usage: `lat expand <text>` or `echo "text" | lat expand`
 
 For each `[[ref]]` in the input, uses `findSections()` directly (no `resolveRef`):
+
 1. **Best match** — resolves to the top result from `findSections` (exact > file stem > subsection > subsequence > fuzzy)
 2. **No match** — errors out, tells the agent to ask the user to correct the reference
 
@@ -124,6 +128,7 @@ Generate a file to stdout from a built-in template.
 Usage: `lat gen <target>`
 
 Supported targets:
+
 - `agents.md` — generate an `AGENTS.md` with instructions for coding agents on how to use `lat.md` in the project
 - `claude.md` — alias for `agents.md`
 - `cursor-rules.md` — generate Cursor rules for `.cursor/rules/lat.md`
@@ -141,14 +146,14 @@ Interactive setup wizard. Walks the user through initializing lat.md in a projec
 Usage: `lat init [dir]`
 
 Steps:
+
 1. **lat.md/ directory** — if not present, asks whether to create it (via a one-off readline interface that is closed before step 2). Scaffolds from `templates/init/` (`.gitignore` and `README.md`). If it already exists, skips ahead.
-2. **Agent selection** — interactive arrow-key select menu ([[src/cli/select-menu.ts#selectMenu]]). Users pick agents one at a time; after each selection, the menu reappears without that agent and with a "This is it: continue" option (green background accent) at the top. On the first prompt the cursor defaults to the first agent; on subsequent prompts it defaults to "This is it: continue". Supports up/down arrows, j/k, Enter to confirm, Ctrl+C to abort. **Important:** the persistent readline interface is created *after* this step — `selectMenu` puts stdin into raw mode with its own `data` listener, which corrupts any co-existing readline interface.
+2. **Agent selection** — interactive arrow-key select menu ([[src/cli/select-menu.ts#selectMenu]]). Users pick agents one at a time; after each selection, the menu reappears without that agent and with a "This is it: continue" option (green background accent) at the top. On the first prompt the cursor defaults to the first agent; on subsequent prompts it defaults to "This is it: continue". Supports up/down arrows, j/k, Enter to confirm, Ctrl+C to abort. **Important:** the persistent readline interface is created _after_ this step — `selectMenu` puts stdin into raw mode with its own `data` listener, which corrupts any co-existing readline interface.
 3. **Command style** — if any selected agent needs a lat command reference (all except Codex), a `selectMenu` asks "How should agents run lat?" with three options: `lat` (global install, portable), the resolved local binary path, or `npx lat.md@latest` (slow but zero-install). The choice determines what command string is written into hooks, MCP configs, and Pi extensions. Non-interactive mode defaults to `local`. Choosing `global` or `npx` makes generated config files portable and safe to commit.
 4. **AGENTS.md** — created if a non-Claude agent is selected (Cursor, Copilot, Codex). Shared instruction file.
-5. **Per-agent setup** — configures each selected agent (see subsections below). Each step prints a brief explanation of *why* it's needed (e.g. why a hook is used instead of CLAUDE.md, why MCP is registered alongside CLI access).
+5. **Per-agent setup** — configures each selected agent (see subsections below). Each step prints a brief explanation of _why_ it's needed (e.g. why a hook is used instead of CLAUDE.md, why MCP is registered alongside CLI access).
 6. **LLM key setup** — checks for an existing key (env var or [[cli#Configuration File]]), and if missing, interactively prompts the user to paste one. Explains what semantic search is and why a key is needed before asking.
 7. **Version stamp + file hashes** — writes `INIT_VERSION` and SHA-256 hashes of all template-generated files to `lat.md/.cache/lat_init.json`. On re-run, compares current file content against stored hashes: unmodified files are silently updated to the latest template; user-modified files trigger a Y/n prompt offering to overwrite with the latest template, declining suggests [[cli#gen]].
-
 
 At the very end, after all steps complete, init checks whether ripgrep (`rg`) is available. If missing, prints a tip suggesting the user install it for faster code scanning, with a link to the ripgrep installation guide.
 
@@ -177,11 +182,14 @@ Sets up a Pi extension that registers lat tools as native Pi tools and hooks int
 
 ### Cursor
 
-Sets up `.cursor/rules` and registers the MCP server for Cursor.
+Sets up `.cursor/rules`, a Cursor stop hook, and the MCP server for Cursor.
 
 - `.cursor/rules/lat.md` — rules file generated from `templates/cursor-rules.md`, references MCP tools instead of CLI commands
-- [[cli#mcp]] server registered in `.cursor/mcp.json` (added to `.gitignore` since it contains absolute paths)
+- `.cursor/hooks.json` — generated stop hook config (`version: 1`) that runs `lat hook cursor stop`. It enforces the end-of-task `lat check` and `lat.md/` sync reminder in Cursor's native hook format.
+- [[cli#mcp]] server registered in `.cursor/mcp.json`
 - `.agents/skills/lat-md/SKILL.md` — skill spec for authoring `lat.md/` files, placed in the cross-agent standard skills directory
+
+The `.cursor` directory is added to `.gitignore` because its hooks and MCP config may contain local paths. Cursor still relies on rules plus MCP for prompt-time search guidance because its hooks do not reliably inject prompt-specific context the way Claude/Pi integrations do.
 
 ### VS Code Copilot
 
@@ -191,10 +199,24 @@ Sets up `copilot-instructions.md` and registers the MCP server for VS Code Copil
 - [[cli#mcp]] server registered in `.vscode/mcp.json`
 - `.agents/skills/lat-md/SKILL.md` — skill spec for authoring `lat.md/` files, placed in the cross-agent standard skills directory
 
-### Codex / OpenCode
+### OpenCode
 
-- Uses AGENTS.md (no MCP support)
+Sets up an OpenCode plugin that registers lat tools as native OpenCode tools and hooks into the session lifecycle.
+
+- `AGENTS.md` — shared instruction file (created in the shared step)
+- `.opencode/plugins/lat.ts` — TypeScript plugin generated from `templates/opencode-plugin.ts` with the lat invocation command injected. Uses `@opencode-ai/plugin` to register six tools (`lat_search`, `lat_section`, `lat_locate`, `lat_check`, `lat_expand`, `lat_refs`) that shell out to the `lat` CLI. Hooks into `session.idle` (runs `lat check` + diff analysis, logs a warning via `client.app.log` if something needs fixing).
 - `.agents/skills/lat-md/SKILL.md` — skill spec for authoring `lat.md/` files, placed in the cross-agent standard skills directory
+- `.opencode` directory added to `.gitignore` (plugin contains local absolute paths)
+
+### Codex
+
+Sets up AGENTS.md, registers the MCP server, and installs skills for the Codex CLI agent.
+
+- `AGENTS.md` — shared instruction file (created in the shared step)
+- [[cli#mcp]] server registered in `.codex/config.toml` as a `[mcp_servers.lat]` TOML table
+- `.codex` directory added to `.gitignore` (config contains local absolute paths)
+- `.agents/skills/lat-md/SKILL.md` — skill spec for authoring `lat.md/` files, placed in the cross-agent standard skills directory
+- `.codex/skills/lat-md/SKILL.md` — same skill spec in Codex's native skills directory
 
 All setup steps are idempotent — existing configuration is detected and skipped.
 
@@ -207,6 +229,7 @@ Implementation: [[src/cli/init.ts]], interactive menu in [[src/cli/select-menu.t
 User-level configuration is stored in `~/.config/lat/config.json` (XDG Base Directory on Linux/macOS, `%APPDATA%\lat\config.json` on Windows). The `XDG_CONFIG_HOME` env var is respected if set.
 
 Currently supports one field:
+
 - `llm_key` — embedding API key for semantic search, used when `LAT_LLM_KEY` env var is not set
 
 Key resolution order: `LAT_LLM_KEY` > `LAT_LLM_KEY_FILE` > `LAT_LLM_KEY_HELPER` > config file `llm_key`. This applies everywhere: `lat search`, `lat check`, and the MCP `lat_search` tool.
@@ -219,7 +242,10 @@ Handle agent hook events. Called by agent hooks configured during `lat init`, no
 
 Usage: `lat hook <agent> <event>`
 
-Currently supports `claude` agent with two events:
+Currently supports:
+
+- `claude` with `UserPromptSubmit` and `Stop`
+- `cursor` with `stop`
 
 ### UserPromptSubmit
 
@@ -239,6 +265,10 @@ Conditionally blocks the agent from stopping — only when something is actually
 3. **Second pass** (`stop_hook_active` true) — if check still fails, print warning to stderr (no block, loop stops). If check passes, exit silently.
 4. **First pass** — run `git diff HEAD --numstat`. Count `codeLines` (files matching [[src/source-parser.ts#SOURCE_EXTENSIONS]]) and `latMdLines`. Skip ratio check if `codeLines < 5` or `latMdLines >= 50` (enough doc work was clearly done). Otherwise round `latMdLines` up to 1 (if nonzero) and flag `needsSync` when `latMdLines < codeLines * 5%`.
 5. **Decision** — both pass: exit silently, clean output. Check failed + needs sync: block ("update `lat.md/`, then run `lat check` until it passes"). Check failed only: block ("run `lat check` until it passes"). Needs sync only: block with explicit context ("not updated" when 0 lat.md lines, "may not be fully in sync (N lines)" when some changes exist but below ratio).
+
+### cursor stop
+
+Runs the same `lat check` and diff analysis as Claude's `Stop` hook, but emits Cursor's `followup_message` payload instead of Claude's block response so the agent continues its loop in Cursor.
 
 Implementation: [[src/cli/hook.ts]]
 
@@ -281,6 +311,7 @@ Requires an LLM key resolved by [[src/config.ts#getLlmKey]] in priority order:
 4. `llm_key` from config file (see [[cli#Configuration File]])
 
 Provider is auto-detected from the resolved key prefix:
+
 - `sk-...` — OpenAI (uses `text-embedding-3-small`, 1536 dims)
 - `vck_...` — Vercel AI Gateway (uses `openai/text-embedding-3-small`, 1536 dims)
 - `di_...` — DeepInfra (uses `Qwen/Qwen3-Embedding-0.6B`, 1024 dims; `di_` prefix is stripped before the key is sent)
@@ -310,6 +341,7 @@ Implementation: [[src/search/db.ts]]
 Sections are extracted via `loadAllSections()` + `flattenSections()`. For each section, the raw markdown between `startLine` and `endLine` is read (not just `firstParagraph`) for richer semantic signal.
 
 Content freshness is tracked via SHA-256 hashes. On each run:
+
 1. Parse all sections, compute hashes
 2. Compare against stored hashes in the DB
 3. Only re-embed new or changed sections (saves API cost)

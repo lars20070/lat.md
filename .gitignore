@@ -6,3 +6,8 @@ dist
 .cursor/mcp.json
 .claude
 .pi
+.opencode
+.agents
+.codex
+.cursor/hooks.json
+.cursor
