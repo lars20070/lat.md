@@ -622,6 +622,7 @@ function collectCNodes(parent: SyntaxNode, symbols: SourceSymbol[]): void {
           endLine,
           signature: firstLine(node.text),
         });
+        collectCStructFields(node, name, symbols);
       }
     } else if (node.type === 'enum_specifier') {
       const name = extractName(node);
@@ -634,6 +635,7 @@ function collectCNodes(parent: SyntaxNode, symbols: SourceSymbol[]): void {
           signature: firstLine(node.text),
         });
       }
+      collectCEnumMembers(node, symbols, name ?? undefined);
     } else if (node.type === 'type_definition') {
       let declarator = node.childForFieldName('declarator');
       // Unwrap pointer_declarator for pointer typedefs
@@ -651,6 +653,17 @@ function collectCNodes(parent: SyntaxNode, symbols: SourceSymbol[]): void {
           endLine,
           signature: firstLine(node.text),
         });
+      }
+      for (const child of node.namedChildren) {
+        if (child.type === 'enum_specifier') {
+          collectCEnumMembers(
+            child,
+            symbols,
+            name ?? extractName(child) ?? undefined,
+          );
+        } else if (child.type === 'struct_specifier' && name) {
+          collectCStructFields(child, name, symbols);
+        }
       }
     } else if (node.type === 'declaration') {
       const declarator = node.childForFieldName('declarator');
@@ -710,6 +723,112 @@ function collectCNodes(parent: SyntaxNode, symbols: SourceSymbol[]): void {
       // Skip else/elif branches of preprocessor conditionals.
     }
   }
+}
+
+function collectCEnumMembers(
+  enumSpecifier: SyntaxNode,
+  symbols: SourceSymbol[],
+  enumName?: string,
+): void {
+  for (const child of enumSpecifier.namedChildren) {
+    if (child.type !== 'enumerator_list') continue;
+    for (const enumerator of child.namedChildren) {
+      if (enumerator.type !== 'enumerator') continue;
+      const name = extractName(enumerator);
+      if (!name) continue;
+      const sym: SourceSymbol = {
+        name,
+        kind: 'const',
+        startLine: enumerator.startPosition.row + 1,
+        endLine: enumerator.endPosition.row + 1,
+        signature: firstLine(enumerator.text),
+      };
+      // Emit without parent (standalone lookup like #GREEN)
+      symbols.push(sym);
+      // Also emit with parent so #Color#GREEN works
+      if (enumName) {
+        symbols.push({ ...sym, parent: enumName });
+      }
+    }
+  }
+}
+
+/**
+ * Extract struct field/member names from a struct_specifier and emit
+ * them as symbols with `parent` set to the struct name.
+ * Handles plain identifiers, pointers, arrays, bitfields, and
+ * anonymous union/struct members (recurses into them).
+ */
+function collectCStructFields(
+  structNode: SyntaxNode,
+  structName: string,
+  symbols: SourceSymbol[],
+): void {
+  for (const child of structNode.namedChildren) {
+    if (child.type !== 'field_declaration_list') continue;
+    collectFieldsFromList(child, structName, symbols);
+  }
+}
+
+function collectFieldsFromList(
+  fieldList: SyntaxNode,
+  structName: string,
+  symbols: SourceSymbol[],
+): void {
+  for (const field of fieldList.namedChildren) {
+    if (field.type !== 'field_declaration') continue;
+    const declarator = field.childForFieldName('declarator');
+    if (declarator) {
+      const name = cFieldName(declarator);
+      if (!name) continue;
+      symbols.push({
+        name,
+        kind: 'variable',
+        parent: structName,
+        startLine: field.startPosition.row + 1,
+        endLine: field.endPosition.row + 1,
+        signature: firstLine(field.text),
+      });
+    } else {
+      // Anonymous union/struct member — recurse into its field list
+      for (const inner of field.namedChildren) {
+        if (
+          (inner.type === 'union_specifier' ||
+            inner.type === 'struct_specifier') &&
+          !extractName(inner)
+        ) {
+          for (const sub of inner.namedChildren) {
+            if (sub.type === 'field_declaration_list') {
+              collectFieldsFromList(sub, structName, symbols);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Extract the field name from a C struct field declarator.
+ * Handles field_identifier, pointer_declarator, array_declarator,
+ * and bitfield_clause (e.g. `uint8_t extensible : 1`).
+ */
+function cFieldName(declarator: SyntaxNode): string | null {
+  let node = declarator;
+  // Unwrap pointer_declarator layers (e.g. `JSShape *shape`)
+  while (node.type === 'pointer_declarator') {
+    const child = node.childForFieldName('declarator');
+    if (!child) return null;
+    node = child;
+  }
+  // Unwrap array_declarator (e.g. `char name[32]`)
+  if (node.type === 'array_declarator') {
+    const inner = node.childForFieldName('declarator');
+    if (!inner) return null;
+    node = inner;
+  }
+  if (node.type === 'field_identifier') return node.text;
+  return null;
 }
 
 function firstLine(text: string): string {
