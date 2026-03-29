@@ -19,9 +19,13 @@ Compress the knowledge about your program domain into a **graph** — a set of i
 
 High-level knowledge is expressed in concise markdown files cross-linked with `[[...]]` wiki syntax. Markdown files link into the codebase (`[[src/auth.ts#validateToken]]`), and source files link back (`// @lat: [[section-id]]`).
 
-**Faster coding for agents** — instead of grepping through your codebase, agents search the knowledge graph to discover key design decisions, constraints, and domain context fast and consistently.
+- **Faster coding for agents** — instead of grepping through your codebase, agents search the knowledge graph to discover key design decisions, constraints, and domain context fast and consistently.
 
-**Faster workflow for humans** — your agents maintain lat files for you. When you review a diff, start with the semantic changes in `lat.md/` to understand *what* changed and *why*. Reviewing code becomes the secondary task.
+- **Faster workflow for humans** — your agents maintain lat files for you. When you review a diff, start with the semantic changes in `lat.md/` to understand *what* changed and *why*. Reviewing code becomes the secondary task.
+
+- **Knowledge retention** — the context and reasoning behind your prompts is usually lost after a session ends. With lat, agents capture that knowledge into the graph as they work, so future sessions start with full context instead of rediscovering it from scratch.
+
+- **Test specs with enforcement** — test cases can be described as sections in `lat.md/` and marked with `require-code-mention: true`. Each spec then must be referenced by a `// @lat:` comment in test code. `lat check` flags any spec without a backlink, so you can review and maintain test coverage from the knowledge graph.
 
 The `lat` CLI gives agents and humans a system to navigate and maintain the graph:
 
