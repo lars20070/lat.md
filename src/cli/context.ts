@@ -1,20 +1,20 @@
 import { dirname } from 'node:path';
-import chalk from 'chalk';
+import { styleText } from 'node:util';
 import { findLatticeDir } from '../lattice.js';
 import type { CmdContext, Styler } from '../context.js';
 
 export type { CmdContext };
 
-function makeChalkStyler(): Styler {
+function makeStyler(): Styler {
   return {
-    bold: (s) => chalk.bold(s),
-    dim: (s) => chalk.dim(s),
-    red: (s) => chalk.red(s),
-    cyan: (s) => chalk.cyan(s),
-    white: (s) => chalk.white(s),
-    green: (s) => chalk.green(s),
-    yellow: (s) => chalk.yellow(s),
-    boldWhite: (s) => chalk.bold.white(s),
+    bold: (s) => styleText('bold', s),
+    dim: (s) => styleText('dim', s),
+    red: (s) => styleText('red', s),
+    cyan: (s) => styleText('cyan', s),
+    white: (s) => styleText('white', s),
+    green: (s) => styleText('green', s),
+    yellow: (s) => styleText('yellow', s),
+    boldWhite: (s) => styleText(['bold', 'white'], s),
   };
 }
 
@@ -24,16 +24,16 @@ export function resolveContext(opts: {
 }): CmdContext {
   const color = opts.color !== false;
   if (!color) {
-    chalk.level = 0;
+    process.env.NO_COLOR = '1';
   }
 
   const latDir = findLatticeDir(opts.dir) ?? '';
   if (!latDir) {
-    console.error(chalk.red('No lat.md directory found'));
-    console.error(chalk.dim('Run `lat init` to create one.'));
+    console.error(styleText('red', 'No lat.md directory found'));
+    console.error(styleText('dim', 'Run `lat init` to create one.'));
     process.exit(1);
   }
 
   const projectRoot = dirname(latDir);
-  return { latDir, projectRoot, styler: makeChalkStyler(), mode: 'cli' };
+  return { latDir, projectRoot, styler: makeStyler(), mode: 'cli' };
 }

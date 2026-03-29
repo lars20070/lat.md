@@ -8,7 +8,7 @@ import {
 import { join, resolve } from 'node:path';
 import { execSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
-import chalk from 'chalk';
+import { styleText } from 'node:util';
 import { findTemplatesDir } from './templates.js';
 import {
   readAgentsTemplate,
@@ -35,7 +35,7 @@ async function confirm(
   while (true) {
     let answer: string;
     try {
-      answer = await rl.question(`${message} ${chalk.dim('[Y/n]')} `);
+      answer = await rl.question(`${message} ${styleText('dim', '[Y/n]')} `);
     } catch {
       // Ctrl+C or closed stdin — abort
       console.log('');
@@ -44,7 +44,7 @@ async function confirm(
     const val = answer.trim().toLowerCase();
     if (val === '' || val === 'y' || val === 'yes') return true;
     if (val === 'n' || val === 'no') return false;
-    console.log(chalk.yellow('  Please answer Y or n.'));
+    console.log(styleText('yellow', '  Please answer Y or n.'));
   }
 }
 
@@ -240,7 +240,7 @@ function ensureGitignored(root: string, entry: string): void {
     const content = readFileSync(gitignorePath, 'utf-8');
     const lines = content.split('\n').map((l) => l.trim());
     if (lines.includes(entry)) {
-      console.log(chalk.green(`  ${entry}`) + ' already in .gitignore');
+      console.log(styleText('green', `  ${entry}`) + ' already in .gitignore');
       return;
     }
   }
@@ -256,14 +256,15 @@ function ensureGitignored(root: string, entry: string): void {
       });
       if (result.trim().length > 0) {
         console.log(
-          chalk.yellow(`  ${entry}`) +
+          styleText('yellow', `  ${entry}`) +
             ' is already checked in to git — skipping .gitignore',
         );
         return;
       }
     } catch {
       console.log(
-        chalk.yellow(`  Warning:`) + ' git ls-files failed — skipping check',
+        styleText('yellow', `  Warning:`) +
+          ' git ls-files failed — skipping check',
       );
     }
   }
@@ -273,14 +274,14 @@ function ensureGitignored(root: string, entry: string): void {
     let content = readFileSync(gitignorePath, 'utf-8');
     if (!content.endsWith('\n')) content += '\n';
     writeFileSync(gitignorePath, content + entry + '\n');
-    console.log(chalk.green(`  Added ${entry}`) + ' to .gitignore');
+    console.log(styleText('green', `  Added ${entry}`) + ' to .gitignore');
   } else if (existsSync(gitDir)) {
     // Create .gitignore with the entry
     writeFileSync(gitignorePath, entry + '\n');
-    console.log(chalk.green(`  Created .gitignore`) + ` with ${entry}`);
+    console.log(styleText('green', `  Created .gitignore`) + ` with ${entry}`);
   } else {
     console.log(
-      chalk.yellow(`  Warning:`) +
+      styleText('yellow', `  Warning:`) +
         ` could not add ${entry} to .gitignore (not a git repository)`,
     );
   }
@@ -435,7 +436,7 @@ async function writeTemplateFile(
   if (!existsSync(absPath)) {
     mkdirSync(join(absPath, '..'), { recursive: true });
     writeFileSync(absPath, template);
-    console.log(chalk.green(`${indent}Created ${label}`));
+    console.log(styleText('green', `${indent}Created ${label}`));
     return templateHash;
   }
 
@@ -446,37 +447,39 @@ async function writeTemplateFile(
 
   if (currentHash === templateHash) {
     // Already matches the latest template
-    console.log(chalk.green(`${indent}${label}`) + ' already up to date');
+    console.log(
+      styleText('green', `${indent}${label}`) + ' already up to date',
+    );
     return templateHash;
   }
 
   if (storedHash && currentHash === storedHash) {
     // Unmodified by user — safe to overwrite with new template
     writeFileSync(absPath, template);
-    console.log(chalk.green(`${indent}Updated ${label}`));
+    console.log(styleText('green', `${indent}Updated ${label}`));
     return templateHash;
   }
 
   // User has modified the file — ask whether to overwrite
   console.log(
-    chalk.yellow(`${indent}${label}`) +
+    styleText('yellow', `${indent}${label}`) +
       ' exists and may contain your own content.',
   );
   if (await ask(`${indent}Overwrite with latest lat template?`)) {
     writeFileSync(absPath, template);
-    console.log(chalk.green(`${indent}Updated ${label}`));
+    console.log(styleText('green', `${indent}Updated ${label}`));
     return templateHash;
   }
 
   console.log(
     genTarget
-      ? chalk.dim(`${indent}Kept existing file.`) +
+      ? styleText('dim', `${indent}Kept existing file.`) +
           ' Run ' +
-          chalk.cyan(`lat gen ${genTarget}`) +
+          styleText('cyan', `lat gen ${genTarget}`) +
           ' to see the latest template.'
-      : chalk.dim(`${indent}Kept existing file.`) +
+      : styleText('dim', `${indent}Kept existing file.`) +
           ' Re-run ' +
-          chalk.cyan('lat init') +
+          styleText('cyan', 'lat init') +
           ' to regenerate this file.',
   );
   return null;
@@ -527,7 +530,7 @@ async function appendTemplateSection(
   if (!existsSync(absPath)) {
     mkdirSync(join(absPath, '..'), { recursive: true });
     writeFileSync(absPath, wrapped);
-    console.log(chalk.green(`${indent}Created ${label}`));
+    console.log(styleText('green', `${indent}Created ${label}`));
     return templateHash;
   }
 
@@ -539,7 +542,9 @@ async function appendTemplateSection(
     const existingSectionHash = contentHash(existingSection);
 
     if (existingSectionHash === templateHash) {
-      console.log(chalk.green(`${indent}${label}`) + ' already up to date');
+      console.log(
+        styleText('green', `${indent}${label}`) + ' already up to date',
+      );
       return templateHash;
     }
 
@@ -556,13 +561,14 @@ async function appendTemplateSection(
         wrapped +
         currentContent.slice(endWithNl);
       writeFileSync(absPath, updated);
-      console.log(chalk.green(`${indent}Updated ${label}`));
+      console.log(styleText('green', `${indent}Updated ${label}`));
       return templateHash;
     }
 
     // User edited the section — ask before replacing
     console.log(
-      chalk.yellow(`${indent}${label}`) + ' lat section has been modified.',
+      styleText('yellow', `${indent}${label}`) +
+        ' lat section has been modified.',
     );
     if (await ask(`${indent}Replace lat section with latest template?`)) {
       const beginIdx = currentContent.indexOf(MARKER_BEGIN);
@@ -573,11 +579,11 @@ async function appendTemplateSection(
         wrapped +
         currentContent.slice(endWithNl);
       writeFileSync(absPath, updated);
-      console.log(chalk.green(`${indent}Updated ${label}`));
+      console.log(styleText('green', `${indent}Updated ${label}`));
       return templateHash;
     }
 
-    console.log(chalk.dim(`${indent}Kept existing section.`));
+    console.log(styleText('dim', `${indent}Kept existing section.`));
     return null;
   }
 
@@ -590,7 +596,7 @@ async function appendTemplateSection(
     // Unmodified old-style file — migrate: wrap existing content with markers
     writeFileSync(absPath, wrapWithMarkers(currentContent));
     console.log(
-      chalk.green(`${indent}Migrated ${label}`) + ' to marker format',
+      styleText('green', `${indent}Migrated ${label}`) + ' to marker format',
     );
     // Return hash of what's now in the section (the old content)
     return currentHash;
@@ -601,7 +607,7 @@ async function appendTemplateSection(
   if (!content.endsWith('\n')) content += '\n';
   content += '\n' + wrapped;
   writeFileSync(absPath, content);
-  console.log(chalk.green(`${indent}Appended lat section to ${label}`));
+  console.log(styleText('green', `${indent}Appended lat section to ${label}`));
   return templateHash;
 }
 
@@ -615,7 +621,8 @@ async function writeAgentsSkill(
 ): Promise<void> {
   console.log('');
   console.log(
-    chalk.dim(
+    styleText(
+      'dim',
       '  The lat-md skill teaches the agent how to write and maintain lat.md/ files.',
     ),
   );
@@ -678,23 +685,29 @@ async function setupClaudeCode(
   // Hooks — UserPromptSubmit (lat.md reminders + [[ref]] expansion) and Stop (update reminder)
   console.log('');
   console.log(
-    chalk.dim(
+    styleText(
+      'dim',
       '  Hooks inject lat.md workflow reminders into every prompt and remind',
     ),
   );
-  console.log(chalk.dim('  the agent to update lat.md/ before finishing.'));
+  console.log(
+    styleText('dim', '  the agent to update lat.md/ before finishing.'),
+  );
 
   const claudeDir = join(root, '.claude');
   const settingsPath = join(claudeDir, 'settings.json');
 
   mkdirSync(claudeDir, { recursive: true });
   syncLatHooks(settingsPath, style);
-  console.log(chalk.green('  Hooks') + ' synced (UserPromptSubmit + Stop)');
+  console.log(
+    styleText('green', '  Hooks') + ' synced (UserPromptSubmit + Stop)',
+  );
 
   // .claude/skills/lat-md/SKILL.md — skill for authoring lat.md files
   console.log('');
   console.log(
-    chalk.dim(
+    styleText(
+      'dim',
       '  The lat-md skill teaches the agent how to write and maintain lat.md/ files.',
     ),
   );
@@ -718,22 +731,26 @@ async function setupClaudeCode(
   // MCP server → .mcp.json at project root
   console.log('');
   console.log(
-    chalk.dim(
+    styleText(
+      'dim',
       '  Agents can call `lat` from the command line, but an MCP server gives lat',
     ),
   );
   console.log(
-    chalk.dim(
+    styleText(
+      'dim',
       '  more visibility and makes agents more likely to use it proactively.',
     ),
   );
 
   const mcpPath = join(root, '.mcp.json');
   if (hasMcpServer(mcpPath, 'mcpServers')) {
-    console.log(chalk.green('  MCP server') + ' already configured');
+    console.log(styleText('green', '  MCP server') + ' already configured');
   } else {
     addMcpServer(mcpPath, 'mcpServers', style);
-    console.log(chalk.green('  MCP server') + ' registered in .mcp.json');
+    console.log(
+      styleText('green', '  MCP server') + ' registered in .mcp.json',
+    );
   }
 
   // Ensure .mcp.json is gitignored (it contains local absolute paths)
@@ -763,12 +780,14 @@ async function setupCursor(
   // .cursor/hooks.json
   console.log('');
   console.log(
-    chalk.dim(
+    styleText(
+      'dim',
       '  Cursor hooks can enforce the lat.md/ stop check, while prompt guidance',
     ),
   );
   console.log(
-    chalk.dim(
+    styleText(
+      'dim',
       '  stays in rules + MCP because Cursor cannot reliably inject prompt-specific context.',
     ),
   );
@@ -788,23 +807,25 @@ async function setupCursor(
   // .cursor/mcp.json
   console.log('');
   console.log(
-    chalk.dim(
+    styleText(
+      'dim',
       '  Agents can call `lat` from the command line, but an MCP server gives lat',
     ),
   );
   console.log(
-    chalk.dim(
+    styleText(
+      'dim',
       '  more visibility and makes agents more likely to use it proactively.',
     ),
   );
 
   const mcpPath = join(root, '.cursor', 'mcp.json');
   if (hasMcpServer(mcpPath, 'mcpServers')) {
-    console.log(chalk.green('  MCP server') + ' already configured');
+    console.log(styleText('green', '  MCP server') + ' already configured');
   } else {
     addMcpServer(mcpPath, 'mcpServers', style);
     console.log(
-      chalk.green('  MCP server') + ' registered in .cursor/mcp.json',
+      styleText('green', '  MCP server') + ' registered in .cursor/mcp.json',
     );
   }
 
@@ -816,7 +837,7 @@ async function setupCursor(
 
   console.log('');
   console.log(
-    chalk.yellow('  Note:') +
+    styleText('yellow', '  Note:') +
       ' Enable MCP in Cursor: Settings → Features → MCP → check "Enable MCP"',
   );
 }
@@ -843,23 +864,25 @@ async function setupCopilot(
   // .vscode/mcp.json
   console.log('');
   console.log(
-    chalk.dim(
+    styleText(
+      'dim',
       '  Agents can call `lat` from the command line, but an MCP server gives lat',
     ),
   );
   console.log(
-    chalk.dim(
+    styleText(
+      'dim',
       '  more visibility and makes agents more likely to use it proactively.',
     ),
   );
 
   const mcpPath = join(root, '.vscode', 'mcp.json');
   if (hasMcpServer(mcpPath, 'servers')) {
-    console.log(chalk.green('  MCP server') + ' already configured');
+    console.log(styleText('green', '  MCP server') + ' already configured');
   } else {
     addMcpServer(mcpPath, 'servers', style);
     console.log(
-      chalk.green('  MCP server') + ' registered in .vscode/mcp.json',
+      styleText('green', '  MCP server') + ' registered in .vscode/mcp.json',
     );
   }
 
@@ -880,12 +903,14 @@ async function setupPi(
   // .pi/extensions/lat.ts — extension that registers tools + lifecycle hooks
   console.log('');
   console.log(
-    chalk.dim(
+    styleText(
+      'dim',
       '  The Pi extension registers lat tools and hooks into the agent lifecycle',
     ),
   );
   console.log(
-    chalk.dim(
+    styleText(
+      'dim',
       '  to inject search context and validate lat.md/ before finishing.',
     ),
   );
@@ -910,7 +935,8 @@ async function setupPi(
   // .pi/skills/lat-md/SKILL.md — skill for authoring lat.md files
   console.log('');
   console.log(
-    chalk.dim(
+    styleText(
+      'dim',
       '  The lat-md skill teaches the agent how to write and maintain lat.md/ files.',
     ),
   );
@@ -945,12 +971,16 @@ async function setupOpenCode(
   // .opencode/plugins/lat.ts — plugin that registers tools + lifecycle hooks
   console.log('');
   console.log(
-    chalk.dim(
+    styleText(
+      'dim',
       '  The OpenCode plugin registers lat tools and hooks into the session',
     ),
   );
   console.log(
-    chalk.dim('  lifecycle to validate lat.md/ when the agent finishes.'),
+    styleText(
+      'dim',
+      '  lifecycle to validate lat.md/ when the agent finishes.',
+    ),
   );
 
   const template = readOpenCodePluginTemplate().replace(
@@ -990,23 +1020,25 @@ async function setupCodex(
   // .codex/config.toml — MCP server registration
   console.log('');
   console.log(
-    chalk.dim(
+    styleText(
+      'dim',
       '  Agents can call `lat` from the command line, but an MCP server gives lat',
     ),
   );
   console.log(
-    chalk.dim(
+    styleText(
+      'dim',
       '  more visibility and makes agents more likely to use it proactively.',
     ),
   );
 
   const mcpPath = join(root, '.codex', 'config.toml');
   if (hasCodexMcpServer(mcpPath)) {
-    console.log(chalk.green('  MCP server') + ' already configured');
+    console.log(styleText('green', '  MCP server') + ' already configured');
   } else {
     addCodexMcpServer(mcpPath, style);
     console.log(
-      chalk.green('  MCP server') + ' registered in .codex/config.toml',
+      styleText('green', '  MCP server') + ' registered in .codex/config.toml',
     );
   }
 
@@ -1019,7 +1051,8 @@ async function setupCodex(
   // .codex/skills/lat-md/SKILL.md — Codex-specific skills directory
   console.log('');
   console.log(
-    chalk.dim(
+    styleText(
+      'dim',
       '  The lat-md skill teaches the agent how to write and maintain lat.md/ files.',
     ),
   );
@@ -1047,17 +1080,19 @@ async function setupLlmKey(
   const existingKey = getLlmKey();
   if (existingKey) {
     console.log('');
-    console.log(chalk.green('Semantic search') + ' — LLM key found. Ready.');
+    console.log(
+      styleText('green', 'Semantic search') + ' — LLM key found. Ready.',
+    );
     return;
   }
 
   // No key found — explain what semantic search is and prompt
   console.log('');
-  console.log(chalk.bold('Semantic search'));
+  console.log(styleText('bold', 'Semantic search'));
   console.log('');
   console.log(
     '  lat.md includes semantic search (' +
-      chalk.cyan('lat search') +
+      styleText('cyan', 'lat search') +
       ') that lets agents find',
   );
   console.log(
@@ -1068,7 +1103,7 @@ async function setupLlmKey(
   );
   console.log(
     '  use ' +
-      chalk.cyan('lat locate') +
+      styleText('cyan', 'lat locate') +
       ' for exact lookups, but will miss semantic matches.',
   );
   console.log('');
@@ -1076,9 +1111,9 @@ async function setupLlmKey(
   // Interactive prompt
   if (!rl) {
     console.log(
-      chalk.yellow('  No LLM key found.') +
+      styleText('yellow', '  No LLM key found.') +
         ' Set LAT_LLM_KEY env var or run ' +
-        chalk.cyan('lat init') +
+        styleText('cyan', 'lat init') +
         ' interactively.',
     );
     return;
@@ -1086,14 +1121,14 @@ async function setupLlmKey(
 
   console.log(
     '  You can provide a key now, or skip and set ' +
-      chalk.cyan('LAT_LLM_KEY') +
+      styleText('cyan', 'LAT_LLM_KEY') +
       ' env var later.',
   );
   console.log(
     '  Supported: OpenAI (' +
-      chalk.dim('sk-...') +
+      styleText('dim', 'sk-...') +
       ') or Vercel AI Gateway (' +
-      chalk.dim('vck_...') +
+      styleText('dim', 'vck_...') +
       ')',
   );
   console.log('');
@@ -1102,11 +1137,11 @@ async function setupLlmKey(
 
   if (!key) {
     console.log(
-      chalk.dim('  Skipped.') +
+      styleText('dim', '  Skipped.') +
         ' You can set ' +
-        chalk.cyan('LAT_LLM_KEY') +
+        styleText('cyan', 'LAT_LLM_KEY') +
         ' later or re-run ' +
-        chalk.cyan('lat init') +
+        styleText('cyan', 'lat init') +
         '.',
     );
     return;
@@ -1115,14 +1150,14 @@ async function setupLlmKey(
   // Validate prefix
   if (key.startsWith('sk-ant-')) {
     console.log(
-      chalk.red('  That looks like an Anthropic key.') +
+      styleText('red', '  That looks like an Anthropic key.') +
         " Anthropic doesn't offer embeddings.",
     );
     console.log(
       '  lat.md needs an OpenAI (' +
-        chalk.dim('sk-...') +
+        styleText('dim', 'sk-...') +
         ') or Vercel AI Gateway (' +
-        chalk.dim('vck_...') +
+        styleText('dim', 'vck_...') +
         ') key.',
     );
     return;
@@ -1130,7 +1165,7 @@ async function setupLlmKey(
 
   if (!key.startsWith('sk-') && !key.startsWith('vck_')) {
     console.log(
-      chalk.yellow('  Unrecognized key prefix.') +
+      styleText('yellow', '  Unrecognized key prefix.') +
         ' Expected sk-... (OpenAI) or vck_... (Vercel AI Gateway).',
     );
     console.log('  Saving anyway — you can update it later.');
@@ -1139,7 +1174,11 @@ async function setupLlmKey(
   // Save to config
   const updatedConfig = { ...readConfig(), llm_key: key };
   writeConfig(updatedConfig);
-  console.log(chalk.green('  Key saved') + ' to ' + chalk.dim(getConfigPath()));
+  console.log(
+    styleText('green', '  Key saved') +
+      ' to ' +
+      styleText('dim', getConfigPath()),
+  );
 }
 
 // ── Post-onboarding guidance ─────────────────────────────────────────
@@ -1163,20 +1202,23 @@ function printNextSteps(selectedAgents: string[]): void {
 
   console.log('');
   console.log(
-    chalk.bold('Next step') + ' — have your agent document this codebase:',
+    styleText('bold', 'Next step') +
+      ' — have your agent document this codebase:',
   );
 
   if (hasClaudeCode) {
     console.log('');
-    console.log('  ' + chalk.bold('Claude Code:'));
-    console.log('    ' + chalk.cyan(`claude "${NEXT_STEP_PROMPT}"`));
+    console.log('  ' + styleText('bold', 'Claude Code:'));
+    console.log('    ' + styleText('cyan', `claude "${NEXT_STEP_PROMPT}"`));
   }
 
   if (ideAgents.length > 0) {
     const names = ideAgents.map((a) => ideLabels[a] || a).join(' / ');
     console.log('');
-    console.log('  ' + chalk.bold(`${names}`) + ' — paste into agent chat:');
-    console.log('    ' + chalk.cyan(NEXT_STEP_PROMPT));
+    console.log(
+      '  ' + styleText('bold', `${names}`) + ' — paste into agent chat:',
+    );
+    console.log('    ' + styleText('cyan', NEXT_STEP_PROMPT));
   }
 }
 
@@ -1187,27 +1229,27 @@ export function readLogo(): string {
 }
 
 export async function initCmd(targetDir?: string): Promise<void> {
-  console.log(chalk.cyan(readLogo()));
+  console.log(styleText('cyan', readLogo()));
 
   // Upfront version check — let the user upgrade before proceeding
-  process.stdout.write(chalk.dim('Checking latest version...'));
+  process.stdout.write(styleText('dim', 'Checking latest version...'));
   const latest = await fetchLatestVersion();
   const local = getLocalVersion();
   if (latest && latest !== local) {
     console.log(
       ' ' +
-        chalk.yellow('update available:') +
+        styleText('yellow', 'update available:') +
         ' ' +
         local +
         ' → ' +
-        chalk.green(latest) +
+        styleText('green', latest) +
         ' — run ' +
-        chalk.cyan('npm install -g lat.md') +
+        styleText('cyan', 'npm install -g lat.md') +
         ' to update.',
     );
     console.log('');
   } else {
-    console.log(' ' + chalk.green(`latest version is used (${local})`));
+    console.log(' ' + styleText('green', `latest version is used (${local})`));
   }
 
   const root = resolve(targetDir ?? process.cwd());
@@ -1229,7 +1271,7 @@ export async function initCmd(targetDir?: string): Promise<void> {
   try {
     // Step 1: lat.md/ directory
     if (existsSync(latDir)) {
-      console.log(chalk.green('lat.md/') + ' already exists');
+      console.log(styleText('green', 'lat.md/') + ' already exists');
     } else {
       // No rl yet — selectMenu hasn't run, so use a one-off confirm
       if (interactive) {
@@ -1249,7 +1291,7 @@ export async function initCmd(targetDir?: string): Promise<void> {
       const templateDir = join(findTemplatesDir(), 'init');
       mkdirSync(latDir, { recursive: true });
       cpSync(templateDir, latDir, { recursive: true });
-      console.log(chalk.green('Created lat.md/'));
+      console.log(styleText('green', 'Created lat.md/'));
     }
 
     // Step 2: Which coding agents do you use? (interactive select menu)
@@ -1319,9 +1361,9 @@ export async function initCmd(targetDir?: string): Promise<void> {
     if (!anySelected) {
       console.log('');
       console.log(
-        chalk.dim('No agents selected. You can re-run') +
+        styleText('dim', 'No agents selected. You can re-run') +
           ' lat init ' +
-          chalk.dim('later.'),
+          styleText('dim', 'later.'),
       );
       return;
     }
@@ -1340,7 +1382,7 @@ export async function initCmd(targetDir?: string): Promise<void> {
     // Step 4: Per-agent setup
     if (useClaudeCode) {
       console.log('');
-      console.log(chalk.bold('Setting up Claude Code...'));
+      console.log(styleText('bold', 'Setting up Claude Code...'));
       await setupClaudeCode(
         root,
         latDir,
@@ -1353,31 +1395,31 @@ export async function initCmd(targetDir?: string): Promise<void> {
 
     if (usePi) {
       console.log('');
-      console.log(chalk.bold('Setting up Pi...'));
+      console.log(styleText('bold', 'Setting up Pi...'));
       await setupPi(root, latDir, fileHashes, ask, commandStyle);
     }
 
     if (useCursor) {
       console.log('');
-      console.log(chalk.bold('Setting up Cursor...'));
+      console.log(styleText('bold', 'Setting up Cursor...'));
       await setupCursor(root, latDir, fileHashes, ask, commandStyle);
     }
 
     if (useCopilot) {
       console.log('');
-      console.log(chalk.bold('Setting up VS Code Copilot...'));
+      console.log(styleText('bold', 'Setting up VS Code Copilot...'));
       await setupCopilot(root, latDir, fileHashes, ask, commandStyle);
     }
 
     if (useOpenCode) {
       console.log('');
-      console.log(chalk.bold('Setting up OpenCode...'));
+      console.log(styleText('bold', 'Setting up OpenCode...'));
       await setupOpenCode(root, latDir, fileHashes, ask, commandStyle);
     }
 
     if (useCodex) {
       console.log('');
-      console.log(chalk.bold('Setting up Codex...'));
+      console.log(styleText('bold', 'Setting up Codex...'));
       await setupCodex(root, latDir, fileHashes, ask, commandStyle);
     }
 
@@ -1389,9 +1431,9 @@ export async function initCmd(targetDir?: string): Promise<void> {
 
     console.log('');
     console.log(
-      chalk.green('Done!') +
+      styleText('green', 'Done!') +
         ' Run ' +
-        chalk.cyan('lat check') +
+        styleText('cyan', 'lat check') +
         ' to validate your setup.',
     );
 
@@ -1400,12 +1442,15 @@ export async function initCmd(targetDir?: string): Promise<void> {
     if (!(await hasRipgrep())) {
       console.log('');
       console.log(
-        chalk.yellow('Tip:') +
+        styleText('yellow', 'Tip:') +
           ' Install ' +
-          chalk.cyan('ripgrep') +
+          styleText('cyan', 'ripgrep') +
           ' (rg) for faster code scanning.' +
           ' See ' +
-          chalk.underline('https://github.com/BurntSushi/ripgrep#installation'),
+          styleText(
+            'underline',
+            'https://github.com/BurntSushi/ripgrep#installation',
+          ),
       );
     }
 

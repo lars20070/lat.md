@@ -1,4 +1,4 @@
-import chalk from 'chalk';
+import { styleText } from 'node:util';
 
 export interface ChecklistOption {
   label: string;
@@ -35,20 +35,22 @@ export async function checklistMenu(
 
       const lines: string[] = [];
       if (prompt) {
-        lines.push(chalk.bold(prompt));
+        lines.push(styleText('bold', prompt));
       }
       for (let i = 0; i < options.length; i++) {
         const opt = options[i];
         const selected = i === cursor;
         const box = checked.has(i) ? '[x]' : '[ ]';
         if (selected) {
-          lines.push(`  ${box} ${chalk.bgCyan.black.bold(` ${opt.label} `)}`);
+          lines.push(
+            `  ${box} ${styleText(['bgCyan', 'black', 'bold'], ` ${opt.label} `)}`,
+          );
         } else {
-          lines.push(`  ${box} ${chalk.dim(opt.label)}`);
+          lines.push(`  ${box} ${styleText('dim', opt.label)}`);
         }
       }
       lines.push('');
-      lines.push(chalk.dim('  space: toggle  enter: confirm'));
+      lines.push(styleText('dim', '  space: toggle  enter: confirm'));
       process.stdout.write(lines.join('\n') + '\n');
     }
 
@@ -89,9 +91,9 @@ export async function checklistMenu(
             .map((i) => options[i].label)
             .join(', ');
           console.log(
-            chalk.bold(prompt) +
+            styleText('bold', prompt) +
               ' ' +
-              (labels ? chalk.green(labels) : chalk.dim('None')),
+              (labels ? styleText('green', labels) : styleText('dim', 'None')),
           );
         }
         resolve(result);

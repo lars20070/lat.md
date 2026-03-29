@@ -1,4 +1,4 @@
-import chalk from 'chalk';
+import { styleText } from 'node:util';
 
 export interface SelectOption {
   label: string;
@@ -40,7 +40,7 @@ export async function selectMenu(
 
       const lines: string[] = [];
       if (prompt) {
-        lines.push(chalk.bold(prompt));
+        lines.push(styleText('bold', prompt));
       }
       for (let i = 0; i < options.length; i++) {
         const opt = options[i];
@@ -49,15 +49,15 @@ export async function selectMenu(
         if (selected) {
           if (opt.accent) {
             lines.push(
-              `  ${pointer} ${chalk.bgGreen.black.bold(` ${opt.label} `)}`,
+              `  ${pointer} ${styleText(['bgGreen', 'black', 'bold'], ` ${opt.label} `)}`,
             );
           } else {
             lines.push(
-              `  ${pointer} ${chalk.bgCyan.black.bold(` ${opt.label} `)}`,
+              `  ${pointer} ${styleText(['bgCyan', 'black', 'bold'], ` ${opt.label} `)}`,
             );
           }
         } else {
-          lines.push(`  ${pointer} ${chalk.dim(opt.label)}`);
+          lines.push(`  ${pointer} ${styleText('dim', opt.label)}`);
         }
       }
       process.stdout.write(lines.join('\n') + '\n');
@@ -96,7 +96,11 @@ export async function selectMenu(
         const selected = options[cursor];
         // Print the selection
         if (prompt) {
-          console.log(chalk.bold(prompt) + ' ' + chalk.green(selected.label));
+          console.log(
+            styleText('bold', prompt) +
+              ' ' +
+              styleText('green', selected.label),
+          );
         }
         resolve(selected.value);
         return;
