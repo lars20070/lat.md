@@ -15,9 +15,7 @@
 
 ## The idea
 
-Compress the knowledge about your program domain into a **graph** — a set of interconnected markdown files that live in a `lat.md/` directory at the root of your project. Sections link to each other with `[[wiki links]]`, source files link back with `// @lat:` comments, and `lat check` ensures nothing drifts out of sync.
-
-High-level knowledge is expressed in concise markdown files cross-linked with `[[...]]` wiki syntax. Markdown files link into the codebase (`[[src/auth.ts#validateToken]]`), and source files link back (`// @lat: [[section-id]]`).
+Compress the knowledge about your program domain into a **graph** — a set of interconnected markdown files that live in a `lat.md/` directory at the root of your project. Sections link to each other with `[[wiki links]]`, markdown files link into the codebase (`[[src/auth.ts#validateToken]]`), source files link back with `// @lat: [[section-id]]` comments, and `lat check` ensures nothing drifts out of sync.
 
 - **Faster coding for agents** — instead of grepping through your codebase, agents search the knowledge graph to discover key design decisions, constraints, and domain context fast and consistently.
 
@@ -29,7 +27,7 @@ High-level knowledge is expressed in concise markdown files cross-linked with `[
 
 The `lat` CLI gives agents and humans a system to navigate and maintain the graph:
 
-- **`lat init`** — sets up popular coding agents with hooks and instructions for using lat
+- **`lat init`** — sets up popular coding agents with hooks and instructions to keep lat updated and correct
 - **`lat check`** — enforces referential consistency; agents call it automatically before finishing work
 - **`lat search`** and **`lat section`** — agents use these to understand your prompts and navigate the graph instead of endless `grep` calls
 
