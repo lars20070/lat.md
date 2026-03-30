@@ -15,15 +15,23 @@
 
 ## The idea
 
-Compress the knowledge about your program domain into a **graph** — a set of interconnected markdown files that live in a `lat.md/` directory at the root of your project. Sections link to each other with `[[wiki links]]`, source files link back with `// @lat:` comments, and `lat check` ensures nothing drifts out of sync.
+Compress the knowledge about your program domain into a **graph** — a set of interconnected markdown files that live in a `lat.md/` directory at the root of your project. Sections link to each other with `[[wiki links]]`, markdown files link into the codebase (`[[src/auth.ts#validateToken]]`), source files link back with `// @lat: [[section-id]]` comments, and `lat check` ensures nothing drifts out of sync.
 
-The result is a structured knowledge base that:
+- **Faster coding for agents** — instead of grepping through your codebase, agents search the knowledge graph to discover key design decisions, constraints, and domain context fast and consistently.
 
-- 📈 **Scales** — split knowledge across as many files and sections as you need
-- 🔗 **Cross-references** — wiki links (`[[cli#search#Indexing]]`) connect concepts into a navigable graph
-- ✅ **Stays in sync** — `lat check` validates that all links resolve and that required code references exist
-- 🔍 **Is searchable** — exact, fuzzy, and semantic (vector) search across all sections
-- 🤝 **Works for humans and machines** — readable in any editor (or Obsidian), queryable by agents via the `lat` CLI
+- **Faster workflow for humans** — your agents maintain lat files for you. When you review a diff, start with the semantic changes in `lat.md/` to understand *what* changed and *why*. Reviewing code becomes the secondary task.
+
+- **Knowledge retention** — the context and reasoning behind your prompts is usually lost after a session ends. With lat, agents capture that knowledge into the graph as they work, so future sessions start with full context instead of rediscovering it from scratch.
+
+- **Test specs with enforcement** — test cases can be described as sections in `lat.md/` and marked with `require-code-mention: true`. Each spec then must be referenced by a `// @lat:` comment in test code. `lat check` flags any spec without a backlink, so you can review and maintain test coverage from the knowledge graph.
+
+The `lat` CLI gives agents and humans a system to navigate and maintain the graph:
+
+- **`lat init`** — sets up popular coding agents with hooks and instructions to keep lat updated and correct
+- **`lat check`** — enforces referential consistency; agents call it automatically before finishing work
+- **`lat search`** and **`lat section`** — agents use these to understand your prompts and navigate the graph instead of endless `grep` calls
+
+`lat` is a workflow that comes with tools — build pre-commit hooks and GitHub bots, run CI tasks that improve the knowledge graph in the background.
 
 ## Install
 
