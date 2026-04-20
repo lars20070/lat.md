@@ -321,6 +321,7 @@ Provider is auto-detected from the resolved key prefix:
 
 - `sk-...` — OpenAI (uses `text-embedding-3-small`, 1536 dims)
 - `vck_...` — Vercel AI Gateway (uses `openai/text-embedding-3-small`, 1536 dims)
+- `di_...` — DeepInfra (uses `Qwen/Qwen3-Embedding-0.6B`, 1024 dims; `di_` prefix is stripped before the key is sent)
 - `sk-ant-...` — Anthropic (not supported, errors with guidance)
 - `REPLAY_LAT_LLM_KEY::<url>` — test-only replay server for offline testing
 
