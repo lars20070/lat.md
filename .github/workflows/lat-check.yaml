@@ -1,5 +1,8 @@
 name: lat check
-on: [push, pull_request]
+on:
+  push:
+  pull_request_target:
+    types: [ opened, synchronize, reopened ]
 
 permissions:
   contents: read
@@ -9,4 +12,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: lars20070/lat-check-action@v1
